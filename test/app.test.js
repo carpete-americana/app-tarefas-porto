@@ -321,3 +321,16 @@ test('push: anúncio do admin, subscrição caducada é removida, segredos não 
   assert.strictEqual((await post('/api/push/cancelar', { id: S1.id })).status, 200);
   assert.strictEqual((await (await post('/api/hello', { id: S1.id })).json()).push, false);
 });
+
+test('admin: ícone, manifest próprio e cabeçalhos', async () => {
+  for (const f of ['admin-180.png', 'admin-192.png', 'admin-512.png']) {
+    const r = await fetch(`${base}/${f}`); assert.strictEqual(r.status, 200); assert.strictEqual(r.headers.get('content-type'), 'image/png');
+    assert.deepStrictEqual([...Buffer.from(await r.arrayBuffer()).subarray(0, 4)], [0x89, 0x50, 0x4e, 0x47], f + ' é PNG');
+  }
+  await adm('/api/admin/textos', { alteracoes: { 'app.nome': 'Casa Porto' } });
+  const m = await (await fetch(base + '/admin.webmanifest')).json();
+  assert.strictEqual(m.name, 'Casa Porto · Admin'); assert.strictEqual(m.start_url, '/admin'); assert.strictEqual(m.scope, '/admin');
+  await adm('/api/admin/textos', { repor: 'tudo' });
+  const h = await (await fetch(base + '/admin')).text();
+  assert.match(h, /rel="icon"/); assert.match(h, /rel="apple-touch-icon" href="\/admin-180.png"/); assert.match(h, /rel="manifest" href="\/admin.webmanifest"/);
+});

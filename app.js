@@ -30,6 +30,10 @@ const FICHEIROS = {
   '/manifest.webmanifest': ['manifest.webmanifest', 'application/manifest+json; charset=utf-8'],
   '/sw.js': ['sw.js', JS],
   '/textos.js': ['textos.js', JS],
+  '/admin.webmanifest': ['admin.webmanifest', 'application/manifest+json; charset=utf-8'],
+  '/admin-180.png': ['admin-180.png', PNG],
+  '/admin-192.png': ['admin-192.png', PNG],
+  '/admin-512.png': ['admin-512.png', PNG],
   '/icon-180.png': ['icon-180.png', PNG],
   '/icon-192.png': ['icon-192.png', PNG],
   '/icon-512.png': ['icon-512.png', PNG],
@@ -473,6 +477,9 @@ const servidor = http.createServer((req, res) => {
     if (!err && (caminho === '/' || caminho === '/index.html')) conteudo = Buffer.from(conteudo.toString('utf8')
       .replace('<title>Tarefas Porto</title>', () => `<title>${esc(texto('app.nome'))}</title>`)
       .replace('name="apple-mobile-web-app-title" content="Tarefas"', () => `name="apple-mobile-web-app-title" content="${esc(texto('app.nomeCurto'))}"`));
+    if (!err && caminho === '/admin.webmanifest') {
+      try { const m = JSON.parse(conteudo.toString('utf8')); m.name = texto('app.nome') + ' · Admin'; conteudo = Buffer.from(JSON.stringify(m, null, 2)); } catch (e) { /* fica o ficheiro */ }
+    }
     if (!err && caminho === '/manifest.webmanifest') {
       try { const m = JSON.parse(conteudo.toString('utf8')); m.name = texto('app.nome'); m.short_name = texto('app.nomeCurto'); m.description = texto('app.descricao'); conteudo = Buffer.from(JSON.stringify(m, null, 2)); } catch (e) { /* fica o ficheiro */ }
     }

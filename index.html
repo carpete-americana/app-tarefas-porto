@@ -415,6 +415,7 @@ function viewMais(){
    <div class="f"><label>${T('mais.mesQuartos')}</label><input type="month" value="${S.roomsBase}" data-act="roomsBase"></div>
    <label class="row"><input type="checkbox" data-act="trashOn" ${S.trashOn?'checked':''}> ${T('mais.incluirLixo')}</label></div>
   <div class="card"><h2>${T('mais.aparencia')}</h2><div class="chips">${[['auto','tema.auto'],['light','tema.claro'],['dark','tema.escuro']].map(([k,l])=>`<button class="chip" data-act="tema" data-k="${k}" aria-pressed="${temaAtual()===k}">${T(l)}</button>`).join('')}</div></div>
+  <div class="card"><h2>${T('push.titulo')}</h2><p class="muted" style="margin:0 0 10px">${T('push.explica')}</p><div id="pushc"></div></div>
   <div class="card"><h2>${T('mais.sinc')}</h2><p class="muted" style="margin:0 0 10px">${esc(textoSinc())}</p><button class="btn" data-act="sincNow">${T('mais.sincAgora')}</button></div>
   <div class="card"><h2>${T('mais.dados')}</h2><p class="muted">${T('mais.dadosNota',{n:total})}</p>
    <div class="row"><button class="btn" data-act="export">${T('mais.exportar')}</button><button class="btn" data-act="import">${T('mais.importar')}</button>
@@ -473,6 +474,7 @@ function render(){
   document.getElementById('sub').innerHTML=(ui.tab==='hoje'||ui.tab==='semana')?filterChips():'';
   const v=TABS.find(t=>t[0]===ui.tab)[1];
   const y=window.scrollY;$main.innerHTML=v();window.scrollTo(0,y);
+  if(ui.tab==='mais')pintarPush();
 }
 document.addEventListener('click',e=>{
   const b=e.target.closest('[data-act]');if(!b)return;const a=b.dataset.act;
@@ -487,6 +489,9 @@ document.addEventListener('click',e=>{
   else if(a==='tema'){aplicarTema(b.dataset.k);render()}
   else if(a==='sincNow'){versaoSrv=-1;sincronizar().then(()=>setTimeout(()=>{if(ui.tab==='mais')renderSeguro()},400))}
   else if(a==='atualizar')procurarAtualizacao();
+  else if(a==='pushOn'){ativarPush().then(()=>pintarPush())}
+  else if(a==='pushOff'){desativarPush().then(()=>pintarPush())}
+  else if(a==='pushTeste'){testarPush()}
   else if(a==='undo'){const f=desfazer;desfazer=null;document.getElementById('toast').className='';if(f)f()}
   else if(a==='restaurar'){const faltam=defaultTasks().filter(d=>!S.tasks.some(t=>t.title===d.title&&t.room===d.room));faltam.forEach(t=>{S.tasks.push(t);op({op:'tarefa',tarefa:t})});save();render();toast(faltam.length?(faltam.length===1?TP('toast.restauradas1'):TP('toast.restaurasN',{n:faltam.length})):TP('toast.nadaRestaurar'))}
   else if(a==='dupTask'){const t=S.tasks.find(x=>x.id===b.dataset.id);if(t){const c={...t,id:uid(),title:(t.title+TP('dlg.copia')).slice(0,120)};S.tasks.push(c);save();$dlg.close();render();op({op:'tarefa',tarefa:c});toast(TP('toast.duplicada'))}}
@@ -547,7 +552,7 @@ async function hello(){
   const id=idAparelho();if(!id||!/^https?:$/.test(location.protocol)||bloqueado)return;
   ultimoHello=Date.now();
   try{const r=await fetch('/api/hello',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,pessoa:ui.filter>=0?S.people[ui.filter]:null,instalada:INSTALADA})});
-    if(!r.ok)return;const j=await r.json();aplicarPessoas(j.pessoas);if(j.tv!==undefined&&j.tv!==tvSrv)carregarTextos();aplicarEstado(j.status)}catch(e){/* sem rede: a app continua a funcionar */}
+    if(!r.ok)return;const j=await r.json();aplicarPessoas(j.pessoas);if(j.tv!==undefined&&j.tv!==tvSrv)carregarTextos();aplicarEstado(j.status);if(j.status==='ativo'){if(j.push===false)reenviarSubscricao();talvezPedirPush(j)}}catch(e){/* sem rede: a app continua a funcionar */}
 }
 // Os nomes das pessoas são do servidor: mudar num aparelho muda em todos.
 function aplicarPessoas(p){
@@ -571,6 +576,66 @@ function aplicarEstado(st){
   g.hidden=false;document.querySelector('.app').hidden=true;
   document.getElementById('verificar').onclick=hello;
   pollHello=setInterval(hello,30000);
+}
+/* ---------- notificações push (só com a app instalada, no iPhone) ---------- */
+const PNAO='tarefas-porto-push-nao';
+const pushSuportado=()=>/^https?:$/.test(location.protocol)&&'serviceWorker'in navigator&&'PushManager'in window&&'Notification'in window;
+const b64uParaBytes=s=>{const b=atob((s+'='.repeat((4-s.length%4)%4)).replace(/-/g,'+').replace(/_/g,'/'));return Uint8Array.from(b,c=>c.charCodeAt(0))};
+async function subscricaoAtual(){
+  const reg=await Promise.race([navigator.serviceWorker.ready,new Promise((_,no)=>setTimeout(no,4000))]);
+  return {reg,sub:await reg.pushManager.getSubscription()};
+}
+async function estadoPush(){
+  if(!pushSuportado())return {tipo:'semSuporte'};
+  if(Notification.permission==='denied')return {tipo:'negadas'};
+  try{const {sub}=await subscricaoAtual();return {tipo:sub&&Notification.permission==='granted'?'ativas':'desativadas'}}catch(e){return {tipo:'semSuporte'}}
+}
+async function pintarPush(){
+  const e=await estadoPush(),el=document.getElementById('pushc');if(!el)return;
+  const chave={semSuporte:'push.estadoSemSuporte',negadas:'push.estadoNegadas',ativas:'push.estadoAtivas',desativadas:'push.estadoDesativadas'}[e.tipo];
+  el.innerHTML=`<p class="muted" style="margin:0 0 10px">${T(chave)}</p>`+(e.tipo==='ativas'?`<div class="row"><button class="btn" data-act="pushTeste">${T('push.testar')}</button><button class="btn" data-act="pushOff">${T('push.desativar')}</button></div>`:e.tipo==='desativadas'?`<button class="btn pri" data-act="pushOn">${T('push.ativar')}</button>`:'');
+}
+async function enviarSubscricao(sub){
+  const r=await fetch('/api/push/subscrever',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:idAparelho(),sub:sub.toJSON()})});
+  return r.ok;
+}
+async function ativarPush(){ // tem de partir de um toque (regra do iPhone)
+  try{
+    if(!pushSuportado())throw 0;
+    if(await Notification.requestPermission()!=='granted')return false;
+    const {reg,sub:existente}=await subscricaoAtual();
+    const k=await (await fetch('/api/push/chave')).json();
+    const sub=existente||await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:b64uParaBytes(k.chave)});
+    if(!await enviarSubscricao(sub))throw 0;
+    return true;
+  }catch(e){toast(TP('push.erro'));return false}
+}
+async function desativarPush(){
+  try{const {sub}=await subscricaoAtual();if(sub)await sub.unsubscribe();
+    await fetch('/api/push/cancelar',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:idAparelho()})})}catch(e){}
+}
+async function testarPush(){
+  try{const r=await fetch('/api/push/teste',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:idAparelho()})});
+    const j=await r.json().catch(()=>({}));toast(r.ok&&j.resultado==='ok'?TP('push.testeEnviado'):TP('push.erro'))}catch(e){toast(TP('push.erro'))}
+}
+let subReenviada=false;
+async function reenviarSubscricao(){ // o servidor perdeu a subscrição (ou é a primeira vez neste arranque): volta a dar-lha
+  if(subReenviada||!pushSuportado()||Notification.permission!=='granted')return;
+  subReenviada=true;
+  try{const {sub}=await subscricaoAtual();if(sub)await enviarSubscricao(sub)}catch(e){}
+}
+let pedidoPushMostrado=false;
+async function talvezPedirPush(j){
+  if(pedidoPushMostrado||!INSTALADA||!j.pushPedir||!pushSuportado()||Notification.permission!=='default')return;
+  try{const t=Number(localStorage.getItem(PNAO)||0);if(t&&Date.now()-t<7*864e5)return}catch(e){}
+  pedidoPushMostrado=true;
+  const g=document.getElementById('gate'),app=document.querySelector('.app');
+  const fechar=()=>{g.hidden=true;app.hidden=false;render()};
+  g.innerHTML=`<div class="box"><img src="/icon-192.png" alt=""><h1>${T('push.pedidoT')}</h1><p class="lead">${T('push.pedidoTxt')}</p>
+    <button class="btn pri" id="pushSim">${T('push.pedidoSim')}</button><button class="btn" id="pushNao" style="margin-top:10px">${T('push.pedidoNao')}</button></div>`;
+  g.hidden=false;app.hidden=true;
+  document.getElementById('pushSim').onclick=async()=>{await ativarPush();fechar()};
+  document.getElementById('pushNao').onclick=()=>{try{localStorage.setItem(PNAO,String(Date.now()))}catch(e){}fechar()};
 }
 /* ---------- estado partilhado: tarefas, marcações, trocas e definições ---------- */
 const CAMPOS=['tasks','done','ov','anchor','roomsBase','trashOn'];

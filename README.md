@@ -28,3 +28,18 @@ A página **Tarefas** tem três separadores: a lista (procura, filtro por divis�
 - **Cópias de segurança**: uma por dia em `data/backups/` (as 14 mais recentes). O admin tem «Exportar» para descarregar tudo.
 - **Segurança**: CSP e `frame-ancestors 'none'` nas páginas; `/api/saude` para monitorização.
 - **Definições**: tema claro/escuro/automático, estado da sincronização e «Procurar atualização» (limpa a cache da app).
+
+## Textos configuráveis
+
+Todos os textos da app (248) estão em `textos.js` e editam-se no admin, separador **Textos**: pesquisa, grupos, «Repor original» por texto e «Repor todos». As mudanças chegam a todos os aparelhos em poucos segundos e também alteram o nome do ícone (manifest) e o título da página. Nos textos: `**negrito**`, `{variáveis}`; os textos com várias alternativas (remates do feed, lembretes) levam uma por linha e a app sorteia. Fora do dicionário ficam apenas as tarefas em si (editam-se em Tarefas), os nomes das pessoas (Definições ou admin), os nomes das divisões e o texto do próprio admin.
+
+## Notificações push
+
+Só para quem tem a app instalada (no iPhone o push só existe no ecrã principal). Feito sem dependências (`push.js`: VAPID + cifra `aes128gcm` com o módulo `crypto`); validado contra `web-push`/`http_ece`.
+
+- **Chaves VAPID**: geradas no primeiro arranque em `data/vapid.json`. **Não apagar nem regerar**: as subscrições existentes ficam presas a estas chaves e deixam de receber, sem erro nenhum.
+- **Quando envia** (admin → Notificações, tudo desligável): tarefa nova (aos outros), responsável trocado (à pessoa), lembrete da manhã (uma vez por dia, a partir da hora escolhida, hora de Lisboa) e avisos escritos à mão para todos ou para uma pessoa. Os textos editam-se no separador Textos, grupo «Notificações».
+- **Pedido de ativação**: ao abrir a app instalada aparece uma vez um ecrã a pedir para ativar (o admin pode desligar); «Agora não» adia 7 dias. Também há um cartão em Definições, com botão de teste.
+- **Lembrete da manhã em produção** precisa de um **Cron Job no cPanel** (o servidor adormece): `curl -fsS https://porto.bcibizz.pt/api/cron/tick >/dev/null`, de 5 em 5 minutos. Recupera passagens falhadas até 6 horas depois.
+- Só se enviam pedidos a serviços de push conhecidos (FCM, Apple, Mozilla, Windows). Subscrições que o serviço recusa (404/410) ou que falham 5 vezes seguidas são removidas. A exportação do admin não leva as subscrições.
+- `PUSH_ASSUNTO` (opcional): contacto VAPID, por omissão `https://porto.bcibizz.pt`.

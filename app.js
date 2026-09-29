@@ -5,12 +5,15 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const TEXTOS = require('./textos.js');
+const PUSH = require('./push.js');
 const TEXTO_DEF = Object.fromEntries(TEXTOS.DEF.map((d) => [d.k, d]));
 
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const FICHEIRO_DADOS = path.join(DATA_DIR, 'aparelhos.json');
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
 const BACKUPS_DIR = path.join(DATA_DIR, 'backups');
+const ASSUNTO_PUSH = process.env.PUSH_ASSUNTO || 'https://porto.bcibizz.pt';
+const CONFIG_BASE = { aprovacao: false, pushNovaTarefa: true, pushTroca: true, pushLembrete: true, pushPedido: true, pushHora: '09:00' };
 const MAX_APARELHOS = 1000;
 const MAX_HISTORICO = 200;
 const SESSAO_MS = 12 * 3600e3;
@@ -34,18 +37,27 @@ const FICHEIROS = {
 
 /* ---------- dados ---------- */
 const PESSOAS_BASE = ['Sofia', 'Leonor', 'Francisco'];
-let db = { config: { aprovacao: false }, aparelhos: {}, pessoas: PESSOAS_BASE.slice(), estado: null, versao: 0, historico: [], textos: {}, textosV: 1 };
+let db = { config: { ...CONFIG_BASE }, aparelhos: {}, pessoas: PESSOAS_BASE.slice(), estado: null, versao: 0, historico: [], textos: {}, textosV: 1 };
 let estadoCru = null;
 try {
   const j = JSON.parse(fs.readFileSync(FICHEIRO_DADOS, 'utf8'));
   if (j && typeof j === 'object') {
-    db = { config: { aprovacao: !!(j.config && j.config.aprovacao) }, aparelhos: j.aparelhos && typeof j.aparelhos === 'object' ? j.aparelhos : {},
+    db = { config: configLimpa(j.config), aparelhos: j.aparelhos && typeof j.aparelhos === 'object' ? j.aparelhos : {},
       pessoas: Array.isArray(j.pessoas) && j.pessoas.length === 3 ? j.pessoas.map((n, i) => String(n).slice(0, 20) || PESSOAS_BASE[i]) : PESSOAS_BASE.slice(), estado: null, versao: Number.isInteger(j.versao) ? j.versao : 0,
       textos: j.textos && typeof j.textos === 'object' ? j.textos : {}, textosV: Number.isInteger(j.textosV) ? j.textosV : 1,
       historico: Array.isArray(j.historico) ? j.historico.filter((h) => h && typeof h.t === 'number' && typeof h.texto === 'string').slice(0, MAX_HISTORICO) : [] };
     estadoCru = j.estado;
   }
 } catch (e) { /* primeira execução */ }
+
+function configLimpa(c) {
+  c = c && typeof c === 'object' ? c : {};
+  const bool = (k) => (typeof c[k] === 'boolean' ? c[k] : CONFIG_BASE[k]);
+  return {
+    aprovacao: c.aprovacao === true, pushNovaTarefa: bool('pushNovaTarefa'), pushTroca: bool('pushTroca'), pushLembrete: bool('pushLembrete'), pushPedido: bool('pushPedido'),
+    pushHora: /^([01]\d|2[0-3]):[0-5]\d$/.test(c.pushHora) ? c.pushHora : CONFIG_BASE.pushHora,
+  };
+}
 
 function gravar() {
   fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -125,6 +137,50 @@ function registar(aparelho, textoBase, tipo) {
   if (db.historico.length > MAX_HISTORICO) db.historico.length = MAX_HISTORICO;
 }
 
+/* ---------- notificações push ---------- */
+const enviosPendentes = new Set();
+const comPush = () => Object.values(db.aparelhos).filter((a) => a.push && a.status === 'ativo');
+const nomeDe = (a) => (a && (a.etiqueta || a.pessoa)) || texto('act.alguem');
+
+async function enviarAoAparelho(a, msg) {
+  const r = await PUSH.enviar(a.push, msg, { dir: DATA_DIR, assunto: ASSUNTO_PUSH });
+  if (r === 'ok') a.push.falhas = 0;
+  else if (r === 'removida' || ++a.push.falhas >= 5) delete a.push; // o serviço já não a conhece, ou falhou 5 vezes seguidas
+  return r;
+}
+// msg pode ser um objeto ou uma função (aparelho) => objeto. Nunca rejeita: um envio falhado não afeta quem o provocou.
+function notificar(alvos, msg) {
+  const p = (async () => {
+    let enviados = 0;
+    for (const a of alvos) {
+      if (!a.push) continue;
+      const m = typeof msg === 'function' ? msg(a) : msg;
+      if ((await enviarAoAparelho(a, { url: '/', icon: '/icon-192.png', ...m })) === 'ok') enviados++;
+    }
+    gravar();
+    return enviados;
+  })().catch(() => 0);
+  enviosPendentes.add(p); p.finally(() => enviosPendentes.delete(p));
+  return p;
+}
+
+function agoraLisboa() {
+  const partes = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Lisbon', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date());
+  const g = (t) => partes.find((x) => x.type === t).value;
+  return { dia: `${g('year')}-${g('month')}-${g('day')}`, min: Number(g('hour')) * 60 + Number(g('minute')) };
+}
+// Lembrete da manhã: a partir da hora configurada (janela de 6 h, para uma passagem falhada do cron ainda recuperar) e uma só vez por dia.
+async function tickLembretes(agora = agoraLisboa()) {
+  if (!db.config.pushLembrete) return 0;
+  const [h, m] = db.config.pushHora.split(':').map(Number);
+  if (agora.min < h * 60 + m || agora.min > h * 60 + m + 360) return 0;
+  const alvos = comPush().filter((a) => a.pessoa && a.lembreteDia !== agora.dia);
+  if (!alvos.length) return 0;
+  alvos.forEach((a) => { a.lembreteDia = agora.dia; });
+  gravar(); // reclama o dia antes de enviar: dois processos não avisam a dobrar
+  return notificar(alvos, (a) => ({ title: texto('notif.lembreteTitulo', { nome: a.pessoa }), body: texto('notif.lembrete'), tag: 'lembrete-' + agora.dia }));
+}
+
 function lerCorpo(req, max = 4096) {
   return new Promise((resolve, reject) => {
     let tam = 0; const partes = [];
@@ -171,7 +227,7 @@ async function hello(req, res) {
       gravar();
     }
   }
-  json(res, 200, { status: a.status, pessoas: db.pessoas, tv: db.textosV });
+  json(res, 200, { status: a.status, pessoas: db.pessoas, tv: db.textosV, pushPedir: db.config.pushPedido, push: !!a.push });
 }
 
 /* ---------- API pública: mudar o nome de uma pessoa (vale para todos) ---------- */
@@ -185,6 +241,31 @@ async function mudarPessoa(req, res) {
   registar(a, texto('act.nome', { n: b.i + 1, nome }), 'nome');
   db.pessoas[b.i] = nome; db.versao++; gravar();
   json(res, 200, { pessoas: db.pessoas, versao: db.versao });
+}
+
+/* ---------- API pública: subscrições push ---------- */
+async function pushApi(req, res, rota) {
+  if (excede('push:' + ipDe(req), 30, 60e3)) return json(res, 429, { erro: 'Demasiados pedidos.' });
+  let b; try { b = await lerCorpo(req); } catch (e) { return json(res, 400, { erro: 'Pedido inválido.' }); }
+  const a = typeof b.id === 'string' && db.aparelhos[b.id];
+  if (!a || a.status !== 'ativo') return json(res, 403, { erro: 'Aparelho sem acesso.' });
+  if (rota === '/api/push/subscrever') {
+    const s = b.sub, k = s && s.keys;
+    if (!s || typeof s.endpoint !== 'string' || !PUSH.endpointAceite(s.endpoint) || !k || typeof k.p256dh !== 'string' || typeof k.auth !== 'string'
+      || PUSH.deB64u(k.p256dh).length !== 65 || PUSH.deB64u(k.auth).length !== 16) return json(res, 400, { erro: 'Subscrição inválida.' });
+    const igual = a.push && a.push.endpoint === s.endpoint && a.push.p256dh === k.p256dh && a.push.auth === k.auth;
+    if (!igual) { a.push = { endpoint: s.endpoint, p256dh: k.p256dh, auth: k.auth, falhas: 0, desde: Date.now() }; gravar(); }
+    return json(res, 200, { ok: true });
+  }
+  if (rota === '/api/push/cancelar') { if (a.push) { delete a.push; gravar(); } return json(res, 200, { ok: true }); }
+  if (rota === '/api/push/teste') {
+    if (!a.push) return json(res, 400, { erro: 'Este aparelho não tem notificações ativas.' });
+    if (excede('pushteste:' + b.id, 6, 60e3)) return json(res, 429, { erro: 'Demasiados testes.' });
+    const r = await enviarAoAparelho(a, { title: texto('notif.testeTitulo', { app: texto('app.nome') }), body: texto('notif.teste'), url: '/', icon: '/icon-192.png', tag: 'teste' });
+    gravar();
+    return json(res, 200, { resultado: r });
+  }
+  json(res, 404, { erro: 'Não encontrado.' });
 }
 
 /* ---------- API pública: estado partilhado (tarefas, marcações, trocas, definições) ---------- */
@@ -260,12 +341,14 @@ async function estadoApi(req, res) {
       if (b.valor === null) delete e.ov[b.chave]; else e.ov[b.chave] = b.valor;
       const alvo = b.chave.startsWith('lixo|') ? texto('act.alvoLixo', { data: b.chave.slice(5) }) : b.chave.split('|')[1];
       registar(a, b.valor === null ? texto('act.trocaRepor', { alvo }) : texto('act.trocaPara', { alvo, nome: db.pessoas[b.valor] }), 'troca');
+      if (b.valor !== null && db.config.pushTroca) notificar(comPush().filter((x) => x.id !== a.id && x.pessoa === db.pessoas[b.valor]), { title: texto('notif.trocaTitulo', { app: texto('app.nome') }), body: texto('notif.troca', { quem: nomeDe(a), alvo }), tag: 'troca-' + b.chave });
     } else if (b.op === 'tarefa') {
       const t = tarefaLimpa(b.tarefa);
       if (!t) return json(res, 400, { erro: 'Tarefa inválida.' });
       const i = e.tasks.findIndex((x) => x.id === t.id);
       if (i >= 0) e.tasks[i] = t; else if (e.tasks.length >= 200) return json(res, 400, { erro: 'Demasiadas tarefas.' }); else e.tasks.push(t);
       registar(a, texto(i >= 0 ? 'act.editou' : 'act.criou', { titulo: t.title }), i >= 0 ? 'editou' : 'criou');
+      if (i < 0 && db.config.pushNovaTarefa) notificar(comPush().filter((x) => x.id !== a.id), { title: texto('notif.novaTitulo', { app: texto('app.nome') }), body: texto('notif.nova', { quem: nomeDe(a), titulo: t.title, remate: texto('notif.remateNova') }), tag: 'nova-' + t.id });
     } else if (b.op === 'tarefa-apagar' && typeof b.tid === 'string') {
       registar(a, texto('act.apagou', { titulo: titulo(e, b.tid) }), 'apagou');
       e.tasks = e.tasks.filter((x) => x.id !== b.tid);
@@ -302,13 +385,13 @@ async function admin(req, res, rota) {
     return json(res, 200, { ok: true }, { 'Set-Cookie': 'tp_admin=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0' });
   }
   if (rota === '/api/admin/dados' && req.method === 'GET') {
-    return json(res, 200, { agora: Date.now(), config: db.config, pessoas: db.pessoas, aparelhos: Object.values(db.aparelhos).sort((x, y) => y.ultimo - x.ultimo) });
+    return json(res, 200, { agora: Date.now(), config: db.config, pessoas: db.pessoas, aparelhos: Object.values(db.aparelhos).map((a) => ({ ...a, push: !!a.push })).sort((x, y) => y.ultimo - x.ultimo) });
   }
   if (rota === '/api/admin/textos' && req.method === 'GET') return json(res, 200, { def: TEXTOS.DEF, grupos: TEXTOS.GRUPOS, textos: db.textos, tv: db.textosV });
   if (rota === '/api/admin/atividade' && req.method === 'GET') return json(res, 200, { itens: db.historico });
   if (rota === '/api/admin/backup' && req.method === 'GET') {
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'Content-Disposition': `attachment; filename="tarefas-porto-${new Date().toISOString().slice(0, 10)}.json"` });
-    return res.end(JSON.stringify(db, null, 1));
+    return res.end(JSON.stringify({ ...db, aparelhos: Object.fromEntries(Object.entries(db.aparelhos).map(([k, a]) => [k, { ...a, push: undefined }])) }, null, 1)); // sem as chaves das subscrições push
   }
   let b; try { b = await lerCorpo(req, 262144); } catch (e) { return json(res, 400, { erro: 'Pedido inválido.' }); }
   if (rota === '/api/admin/textos' && req.method === 'POST') {
@@ -325,6 +408,15 @@ async function admin(req, res, rota) {
     db.textosV++; gravar();
     return json(res, 200, { tv: db.textosV, textos: db.textos });
   }
+  if (rota === '/api/admin/push/enviar' && req.method === 'POST') {
+    const msg = limpa(b.mensagem, 200), titulo = limpa(b.titulo, 60) || texto('app.nome');
+    if (!msg) return json(res, 400, { erro: 'Escreve a mensagem.' });
+    const i = b.destino === 'todos' ? -1 : Number(String(b.destino).replace('pessoa:', ''));
+    if (b.destino !== 'todos' && !(Number.isInteger(i) && i >= 0 && i <= 2)) return json(res, 400, { erro: 'Destino inválido.' });
+    const alvos = comPush().filter((x) => i < 0 || x.pessoa === db.pessoas[i]);
+    const enviados = await notificar(alvos, { title: titulo, body: msg, tag: 'anuncio-' + Date.now() });
+    return json(res, 200, { tentados: alvos.length, enviados });
+  }
   if (rota === '/api/admin/pessoas' && req.method === 'POST') {
     const nomes = Array.isArray(b.pessoas) ? b.pessoas.map((n) => limpa(n, 20)) : [];
     if (nomes.length !== 3 || nomes.some((n) => !n)) return json(res, 400, { erro: 'Indica os 3 nomes.' });
@@ -332,7 +424,7 @@ async function admin(req, res, rota) {
     return json(res, 200, { pessoas: db.pessoas });
   }
   if (rota === '/api/admin/config' && req.method === 'POST') {
-    db.config.aprovacao = b.aprovacao === true; gravar();
+    db.config = configLimpa({ ...db.config, ...b }); gravar();
     return json(res, 200, { config: db.config });
   }
   if (rota === '/api/admin/aparelho' && req.method === 'POST') {
@@ -353,6 +445,12 @@ async function admin(req, res, rota) {
 const servidor = http.createServer((req, res) => {
   const caminho = req.url.split('?')[0];
   if (caminho === '/api/hello' && req.method === 'POST') return hello(req, res).catch(() => json(res, 500, { erro: 'Erro interno.' }));
+  if (caminho === '/api/push/chave' && req.method === 'GET') return json(res, 200, { chave: PUSH.carregarChaves(DATA_DIR).publica });
+  if (caminho.startsWith('/api/push/') && req.method === 'POST') return pushApi(req, res, caminho).catch(() => json(res, 500, { erro: 'Erro interno.' }));
+  if (caminho === '/api/cron/tick' && req.method === 'GET') {
+    if (excede('cron:' + ipDe(req), 30, 60e3)) return json(res, 429, { erro: 'Demasiados pedidos.' });
+    return tickLembretes().then((n) => json(res, 200, { enviados: n })).catch(() => json(res, 500, { erro: 'Erro interno.' }));
+  }
   if (caminho === '/api/textos' && req.method === 'GET') return json(res, 200, { tv: db.textosV, textos: db.textos });
   if (caminho === '/api/saude' && req.method === 'GET') return json(res, 200, { ok: true, versao: db.versao, aparelhos: Object.keys(db.aparelhos).length });
   if (caminho === '/api/atividade' && req.method === 'GET') {
@@ -394,6 +492,13 @@ const servidor = http.createServer((req, res) => {
   });
 });
 
+servidor.aguardarPush = () => Promise.all([...enviosPendentes]);
+servidor.tickLembretes = tickLembretes;
+servidor.definirTransportePush = PUSH.definirTransporte;
 module.exports = servidor;
 // Sob o Passenger, PORT pode ser um socket; em local cai para 3100.
-if (!process.env.TESTE) servidor.listen(process.env.PORT || 3100);
+if (!process.env.TESTE) {
+  servidor.listen(process.env.PORT || 3100);
+  // O Passenger adormece a app quando está parada: em produção convém também um cron do cPanel a chamar /api/cron/tick.
+  setInterval(() => tickLembretes().catch(() => {}), 60e3).unref();
+}

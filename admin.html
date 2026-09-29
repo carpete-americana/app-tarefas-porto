@@ -75,8 +75,8 @@ details.grp>summary .n{margin-left:auto;font-weight:400;color:var(--mute);font-s
     <p class="err" id="lerr" role="alert"></p><button class="btn pri" style="width:100%">Entrar</button></form>
   </div>
   <div id="painel" hidden>
-    <div class="top"><h1 class="grow">Aparelhos</h1><span class="muted" id="upd"></span><a class="btn sm" href="/api/admin/backup" download style="text-decoration:none;display:inline-flex;align-items:center">Exportar</a><button class="btn sm" id="atualizar">Atualizar</button><button class="btn sm" id="sair">Sair</button></div>
-    <div class="seg" id="abas" role="tablist"><button role="tab" data-v="aparelhos" aria-selected="true">Aparelhos</button><button role="tab" data-v="textos" aria-selected="false">Textos</button></div>
+    <div class="top"><h1 class="grow">Aparelhos</h1><span class="muted" id="upd"></span><a class="btn sm" href="/api/admin/backup" download style="text-decoration:none;color:inherit;display:inline-flex;align-items:center">Exportar</a><button class="btn sm" id="atualizar">Atualizar</button><button class="btn sm" id="sair">Sair</button></div>
+    <div class="seg" id="abas" role="tablist"><button role="tab" data-v="aparelhos" aria-selected="true">Aparelhos</button><button role="tab" data-v="textos" aria-selected="false">Textos</button><button role="tab" data-v="notif" aria-selected="false">Notificações</button></div>
     <div id="v-aparelhos">
     <div class="tiles" id="tiles"></div>
     <div class="card"><label class="sw"><input type="checkbox" id="aprov"><span><b>Exigir aprovação de aparelhos novos</b><br><span class="muted">Desligado: entram logo. Ligado: ficam «pendentes» até os aprovares. Os que já existem não são afetados.</span></span></label></div>
@@ -88,6 +88,19 @@ details.grp>summary .n{margin-left:auto;font-weight:400;color:var(--mute);font-s
       <div id="lista"></div>
     </div>
     <div class="card"><b>Atividade recente</b><div id="ativ" style="margin-top:6px"></div></div>
+    </div>
+    <div id="v-notif" hidden>
+      <div class="card"><b>Quando enviar notificações</b><p class="muted" style="margin:2px 0 12px" id="pinfo"></p>
+        <label class="sw" style="margin-bottom:12px"><input type="checkbox" id="c-nova"><span><b>Tarefa nova</b><br><span class="muted">Avisa toda a gente (menos quem a criou).</span></span></label>
+        <label class="sw" style="margin-bottom:12px"><input type="checkbox" id="c-troca"><span><b>Responsável trocado</b><br><span class="muted">Avisa a pessoa a quem passaram uma tarefa.</span></span></label>
+        <label class="sw" style="margin-bottom:12px"><input type="checkbox" id="c-lembrete"><span><b>Lembrete da manhã</b><br><span class="muted">Um aviso por dia a cada pessoa, a partir desta hora (hora de Lisboa):</span></span></label>
+        <div class="row" style="margin:-4px 0 14px 62px"><input type="time" id="phora" style="width:auto;min-height:40px"></div>
+        <label class="sw"><input type="checkbox" id="c-pedido"><span><b>Pedir para ativar ao abrir a app</b><br><span class="muted">Mostra, uma vez, um ecrã a pedir para ativar as notificações (só na app instalada). «Agora não» adia 7 dias.</span></span></label></div>
+      <div class="card"><b>Enviar um aviso agora</b>
+        <form id="pf" style="display:grid;gap:8px;margin-top:8px"><input type="text" id="ptit" maxlength="60" placeholder="Título (opcional)"><textarea id="pmsg" maxlength="200" rows="3" placeholder="Mensagem" required style="border:1px solid var(--line);background:var(--card);border-radius:10px;padding:9px 11px;font:inherit;color:inherit"></textarea>
+        <select id="pdest" style="min-height:44px;border:1px solid var(--line);background:var(--card);border-radius:10px;padding:0 10px;color:inherit"></select>
+        <div class="row"><button class="btn pri">Enviar</button><span class="muted" id="pres" role="status"></span></div></form></div>
+      <div class="card"><b>Lembretes em produção</b><p class="muted" style="margin:2px 0 0">O servidor adormece quando ninguém usa a app, por isso o lembrete da manhã precisa de um <b>Cron Job</b> no cPanel (por exemplo, de 5 em 5 minutos) que chame <code>curl -fsS https://porto.bcibizz.pt/api/cron/tick</code>. Se falhar uma passagem, a seguinte recupera dentro de 6 horas. As mensagens (títulos e textos) editam-se no separador <b>Textos</b>, grupo «Notificações».</p></div>
     </div>
     <div id="v-textos" hidden>
       <div class="card"><b>Textos da app</b><p class="muted" style="margin:2px 0 10px">Todos os textos que as pessoas veem (e as frases do feed de atividade). Mudam em todos os aparelhos em poucos segundos. Usa <code>**assim**</code> para negrito e mantém as variáveis entre chavetas, como <code>{nome}</code>. Nos textos com várias alternativas, escreve uma por linha: a app sorteia.</p>
@@ -121,9 +134,13 @@ function desenhar(){
   const A=D.aparelhos,n=(f)=>A.filter(f).length;
   $('#upd').textContent='atualizado '+new Date().toLocaleTimeString('pt-PT',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
   $('#aprov').checked=!!D.config.aprovacao;
+  const cf=D.config;$('#c-nova').checked=!!cf.pushNovaTarefa;$('#c-troca').checked=!!cf.pushTroca;$('#c-lembrete').checked=!!cf.pushLembrete;$('#c-pedido').checked=!!cf.pushPedido;
+  if(document.activeElement!==$('#phora'))$('#phora').value=cf.pushHora;
+  $('#pinfo').textContent=A.filter(a=>a.push).length+' aparelho(s) com notificações ativas.';
+  if(!$('#pdest').matches(':focus'))$('#pdest').innerHTML='<option value="todos">Todos os aparelhos</option>'+D.pessoas.map((n,i)=>`<option value="pessoa:${i}">Só ${esc(n)}</option>`).join('');
   if(!$('#nomes').contains(document.activeElement))$('#nomes').innerHTML=D.pessoas.map((n,i)=>`<label style="flex:1 1 130px;min-width:0"><span class="muted">Pessoa ${i+1}</span><input type="text" maxlength="20" value="${esc(n)}" data-n="${i}" required></label>`).join('');
   $('#ativ').innerHTML=D.ativ.length?D.ativ.slice(0,40).map(h=>`<div class="dev"><div><b>${esc(h.quem)}</b> ${esc(h.texto)}</div><div class="meta"><span>${rel(h.t)}</span></div></div>`).join(''):'<p class="muted">Ainda sem atividade.</p>';
-  $('#tiles').innerHTML=[['Aparelhos',A.length],['Online agora',n(a=>D.agora-a.ultimo<5*60e3)],['Ativos hoje',n(a=>D.agora-a.ultimo<864e5)],['Instalados',n(a=>a.instalada)],['Pendentes',n(a=>a.status==='pendente')],['Bloqueados',n(a=>a.status==='bloqueado')]]
+  $('#tiles').innerHTML=[['Aparelhos',A.length],['Online agora',n(a=>D.agora-a.ultimo<5*60e3)],['Ativos hoje',n(a=>D.agora-a.ultimo<864e5)],['Instalados',n(a=>a.instalada)],['Com notificações',n(a=>a.push)],['Pendentes',n(a=>a.status==='pendente')],['Bloqueados',n(a=>a.status==='bloqueado')]]
     .map(([l,v])=>`<div class="tile"><b>${v}</b><span class="muted">${l}</span></div>`).join('');
   const fs=[['todos','Todos'],['pendente','Pendentes'],['ativo','Ativos'],['bloqueado','Bloqueados']];
   $('#filtros').innerHTML=fs.map(([k,l])=>`<button class="chip" data-f="${k}" aria-pressed="${filtro===k}">${l}</button>`).join('');
@@ -132,13 +149,20 @@ function desenhar(){
   $('#lista').innerHTML=L.length?L.map(a=>{
     const on=D.agora-a.ultimo<5*60e3;
     return `<div class="dev" data-id="${esc(a.id)}"><div class="name">${on?'<span class="dot" title="online"></span>':''}${esc(a.etiqueta||a.pessoa||'Sem nome')}<span class="badge b-${a.status}">${a.status}</span></div>
-      <div class="meta"><span>👤 ${esc(a.pessoa||'ninguém escolhido')}</span><span>📱 ${esc(a.plataforma)}${a.instalada?' · instalada':' · no browser'}</span><span>Visto ${rel(a.ultimo)}</span><span>${a.visitas} visita${a.visitas===1?'':'s'}</span><span>1.º acesso ${data(a.primeiro)}</span><span>ID …${esc(a.id.slice(-6))}</span></div>
+      <div class="meta"><span>👤 ${esc(a.pessoa||'ninguém escolhido')}</span><span>📱 ${esc(a.plataforma)}${a.instalada?' · instalada':' · no browser'}</span><span>Visto ${rel(a.ultimo)}</span><span>${a.visitas} visita${a.visitas===1?'':'s'}</span>${a.push?'<span>🔔 notificações</span>':''}<span>1.º acesso ${data(a.primeiro)}</span><span>ID …${esc(a.id.slice(-6))}</span></div>
       <div class="acts">${a.status==='pendente'?'<button class="btn sm pri" data-a="aprovar">Aprovar</button>':''}${a.status==='bloqueado'?'<button class="btn sm" data-a="desbloquear">Desbloquear</button>':''}${a.status!=='bloqueado'?'<button class="btn sm" data-a="bloquear">Bloquear</button>':''}<button class="btn sm" data-a="etiqueta">Renomear</button><button class="btn sm bad" data-a="apagar">${armado===a.id?'Confirmar apagar':'Apagar'}</button></div></div>`}).join('')
     :'<p class="muted" style="padding:18px 0;text-align:center">Nenhum aparelho.</p>';
 }
 $('#lf').onsubmit=async e=>{e.preventDefault();$('#lerr').textContent='';
   try{await api('/api/admin/login',{password:$('#pw').value});$('#pw').value='';await carregar();timer=setInterval(carregar,20000)}
   catch(err){$('#lerr').textContent=err.message}};
+const cfg=async o=>{try{await api('/api/admin/config',o);await carregar()}catch(e){alert(e.message);await carregar()}};
+$('#c-nova').onchange=e=>cfg({pushNovaTarefa:e.target.checked});$('#c-troca').onchange=e=>cfg({pushTroca:e.target.checked});
+$('#c-lembrete').onchange=e=>cfg({pushLembrete:e.target.checked});$('#c-pedido').onchange=e=>cfg({pushPedido:e.target.checked});
+$('#phora').onchange=e=>{if(e.target.value)cfg({pushHora:e.target.value})};
+$('#pf').onsubmit=async e=>{e.preventDefault();$('#pres').textContent='';
+  try{const r=await api('/api/admin/push/enviar',{titulo:$('#ptit').value,mensagem:$('#pmsg').value,destino:$('#pdest').value});$('#pres').style.color='var(--ok)';$('#pres').textContent='Enviado a '+r.enviados+' de '+r.tentados+' aparelho(s).';$('#pmsg').value=''}
+  catch(err){$('#pres').style.color='var(--bad)';$('#pres').textContent=err.message}};
 $('#nf').onsubmit=async e=>{e.preventDefault();$('#nerr').textContent='';
   try{await api('/api/admin/pessoas',{pessoas:[...document.querySelectorAll('#nomes input')].map(i=>i.value)});$('#nerr').textContent='Guardado.';await carregar()}
   catch(err){$('#nerr').style.color='var(--bad)';$('#nerr').textContent=err.message}};
@@ -160,7 +184,7 @@ document.addEventListener('click',async e=>{
 /* ---------- separadores + textos ---------- */
 let TX=null,pend={},abaAtual='aparelhos';
 const eq=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
-function mostrarAba(v){abaAtual=v;document.querySelectorAll('#abas button').forEach(b=>b.setAttribute('aria-selected',String(b.dataset.v===v)));$('#v-aparelhos').hidden=v!=='aparelhos';$('#v-textos').hidden=v!=='textos';if(v==='textos'&&!TX)carregarTextos()}
+function mostrarAba(v){abaAtual=v;document.querySelectorAll('#abas button').forEach(b=>b.setAttribute('aria-selected',String(b.dataset.v===v)));$('#v-aparelhos').hidden=v!=='aparelhos';$('#v-textos').hidden=v!=='textos';$('#v-notif').hidden=v!=='notif';if(v==='textos'&&!TX)carregarTextos()}
 $('#abas').onclick=e=>{const b=e.target.closest('[data-v]');if(b)mostrarAba(b.dataset.v)};
 const guardado=d=>TX.textos[d.k]!==undefined?TX.textos[d.k]:d.v;
 const atual=d=>pend[d.k]!==undefined?pend[d.k]:guardado(d);

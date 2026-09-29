@@ -4,6 +4,8 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const TEXTOS = require('./textos.js');
+const TEXTO_DEF = Object.fromEntries(TEXTOS.DEF.map((d) => [d.k, d]));
 
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const FICHEIRO_DADOS = path.join(DATA_DIR, 'aparelhos.json');
@@ -14,6 +16,7 @@ const MAX_HISTORICO = 200;
 const SESSAO_MS = 12 * 3600e3;
 
 const HTML = 'text/html; charset=utf-8';
+const JS = 'text/javascript; charset=utf-8';
 const CSP = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; manifest-src 'self'; worker-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 const PNG = 'image/png';
 // Lista fechada: só estes caminhos existem.
@@ -22,7 +25,8 @@ const FICHEIROS = {
   '/index.html': ['index.html', HTML],
   '/admin': ['admin.html', HTML],
   '/manifest.webmanifest': ['manifest.webmanifest', 'application/manifest+json; charset=utf-8'],
-  '/sw.js': ['sw.js', 'text/javascript; charset=utf-8'],
+  '/sw.js': ['sw.js', JS],
+  '/textos.js': ['textos.js', JS],
   '/icon-180.png': ['icon-180.png', PNG],
   '/icon-192.png': ['icon-192.png', PNG],
   '/icon-512.png': ['icon-512.png', PNG],
@@ -30,13 +34,14 @@ const FICHEIROS = {
 
 /* ---------- dados ---------- */
 const PESSOAS_BASE = ['Sofia', 'Leonor', 'Francisco'];
-let db = { config: { aprovacao: false }, aparelhos: {}, pessoas: PESSOAS_BASE.slice(), estado: null, versao: 0, historico: [] };
+let db = { config: { aprovacao: false }, aparelhos: {}, pessoas: PESSOAS_BASE.slice(), estado: null, versao: 0, historico: [], textos: {}, textosV: 1 };
 let estadoCru = null;
 try {
   const j = JSON.parse(fs.readFileSync(FICHEIRO_DADOS, 'utf8'));
   if (j && typeof j === 'object') {
     db = { config: { aprovacao: !!(j.config && j.config.aprovacao) }, aparelhos: j.aparelhos && typeof j.aparelhos === 'object' ? j.aparelhos : {},
       pessoas: Array.isArray(j.pessoas) && j.pessoas.length === 3 ? j.pessoas.map((n, i) => String(n).slice(0, 20) || PESSOAS_BASE[i]) : PESSOAS_BASE.slice(), estado: null, versao: Number.isInteger(j.versao) ? j.versao : 0,
+      textos: j.textos && typeof j.textos === 'object' ? j.textos : {}, textosV: Number.isInteger(j.textosV) ? j.textosV : 1,
       historico: Array.isArray(j.historico) ? j.historico.filter((h) => h && typeof h.t === 'number' && typeof h.texto === 'string').slice(0, MAX_HISTORICO) : [] };
     estadoCru = j.estado;
   }
@@ -63,6 +68,25 @@ function copiaDiaria() {
 /* ---------- utilitários ---------- */
 const ID_OK = /^[A-Za-z0-9-]{8,64}$/;
 const limpa = (v, n) => (typeof v === 'string' ? v.replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, n) : '');
+// Texto configurável: o valor do admin, ou o original. Listas sorteiam uma alternativa.
+function texto(k, vars = {}) {
+  const def = TEXTO_DEF[k];
+  let v = db.textos[k] !== undefined ? db.textos[k] : def && def.v;
+  if (Array.isArray(v)) v = v.length ? v[Math.floor(Math.random() * v.length)] : '';
+  return String(v == null ? k : v).replace(/\{(\w+)\}/g, (m, n) => (vars[n] !== undefined ? String(vars[n]) : m));
+}
+function textoValido(k, v) {
+  const def = TEXTO_DEF[k];
+  if (!def) return null;
+  const um = (x) => (typeof x === 'string' ? x.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '').slice(0, 600) : null);
+  if (def.lista) {
+    if (!Array.isArray(v) || v.length > 30) return null;
+    const l = v.map(um);
+    return l.some((x) => x === null) ? null : l.filter((x) => x.trim());
+  }
+  return um(v);
+}
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const sha = (s) => crypto.createHash('sha256').update(String(s)).digest();
 
 function plataformaDe(ua) {
@@ -92,25 +116,12 @@ function json(res, codigo, corpo, extra = {}) {
   res.end(JSON.stringify(corpo));
 }
 
-// Cada tipo de ação tem uns remates para o feed de atividade não ser sempre igual (a frase factual vem primeiro).
-const GRACAS = {
-  marcou: ['despachado! 💪', 'que rapidez ⚡', 'ponto para o Porto 🏅', 'sem ninguém pedir (milagre) ✨', 'riscado da lista ✅'],
-  desmarcou: ['afinal ainda não estava… 🤨', 'dúvidas existenciais 🤔', 'voltou atrás, acontece', 'a vida dá segundas oportunidades'],
-  criou: ['mais trabalho para toda a gente 😅', 'boa sorte, malta 🍀', 'ninguém pediu, mas cá está', 'a lista agradece (ou não)'],
-  editou: ['ficou melhor, dizem ✨', 'retoques finais 🎨', 'só mais um bocadinho'],
-  apagou: ['já ninguém se lembra 🕊️', 'adeus, até nunca 👋', 'mandada para o lixo (o outro, não o de segunda) 🗑️'],
-  troca: ['boa sorte 😈', 'as trocas fazem-se 🤝', 'negócio fechado'],
-  lixo: ['o cheiro agradece 🌸', 'vamos ver quanto tempo aguenta 🙈'],
-  limpar: ['folha em branco, respira fundo 🧼', 'como se nada fosse 🫧'],
-  inicio: ['que comecem os jogos! 🎬', 'e pronto, está tudo a andar 🚀'],
-  nome: ['crise de identidade? 🎭', 'novo nome, mesma tarefa 😎'],
-  config: ['ajustes finos 🔧', 'a engenharia é uma arte 🛠️'],
-};
-const escolhe = (l) => l[Math.floor(Math.random() * l.length)];
-function registar(aparelho, texto, tipo) {
-  const quem = (aparelho && (aparelho.etiqueta || aparelho.pessoa)) || 'Alguém';
-  if (tipo && GRACAS[tipo]) texto += ' — ' + escolhe(GRACAS[tipo]);
-  db.historico.unshift({ t: Date.now(), quem, texto: limpa(texto, 220) });
+// O remate vem de graca.<tipo> (lista editável no admin); a frase factual vem sempre primeiro.
+function registar(aparelho, textoBase, tipo) {
+  const quem = (aparelho && (aparelho.etiqueta || aparelho.pessoa)) || texto('act.alguem');
+  let t = textoBase;
+  if (tipo && TEXTO_DEF['graca.' + tipo]) { const r = texto('graca.' + tipo); if (r) t += ' — ' + r; }
+  db.historico.unshift({ t: Date.now(), quem, texto: limpa(t, 220) });
   if (db.historico.length > MAX_HISTORICO) db.historico.length = MAX_HISTORICO;
 }
 
@@ -160,7 +171,7 @@ async function hello(req, res) {
       gravar();
     }
   }
-  json(res, 200, { status: a.status, pessoas: db.pessoas });
+  json(res, 200, { status: a.status, pessoas: db.pessoas, tv: db.textosV });
 }
 
 /* ---------- API pública: mudar o nome de uma pessoa (vale para todos) ---------- */
@@ -171,7 +182,7 @@ async function mudarPessoa(req, res) {
   if (!a || a.status !== 'ativo') return json(res, 403, { erro: 'Aparelho sem acesso.' });
   const nome = limpa(b.nome, 20);
   if (!Number.isInteger(b.i) || b.i < 0 || b.i > 2 || !nome) return json(res, 400, { erro: 'Nome inválido.' });
-  registar(a, `mudou o nome da pessoa ${b.i + 1} para «${nome}»`, 'nome');
+  registar(a, texto('act.nome', { n: b.i + 1, nome }), 'nome');
   db.pessoas[b.i] = nome; db.versao++; gravar();
   json(res, 200, { pessoas: db.pessoas, versao: db.versao });
 }
@@ -225,42 +236,42 @@ async function estadoApi(req, res) {
   }
   const a = typeof b.id === 'string' && db.aparelhos[b.id];
   if (!a || a.status !== 'ativo') return json(res, 403, { erro: 'Aparelho sem acesso.' });
-  const base = { versao: db.versao, pessoas: db.pessoas };
+  const base = { versao: db.versao, pessoas: db.pessoas, tv: db.textosV };
   if (req.method === 'GET') {
     if (!db.estado) return json(res, 200, { ...base, estado: null });
     return json(res, 200, b.v === db.versao ? { ...base, igual: true } : { ...base, estado: db.estado });
   }
-  const titulo = (e, id) => (id === 'lixo' ? 'Levar o lixo' : ((e && e.tasks.find((t) => t.id === id)) || {}).title || 'tarefa');
+  const titulo = (e, id) => (id === 'lixo' ? texto('lixo.titulo') : ((e && e.tasks.find((t) => t.id === id)) || {}).title || texto('act.tarefaFallback'));
   if (b.op === 'iniciar' || b.op === 'substituir') {
     if (b.op === 'iniciar' && db.estado) return json(res, 409, { ...base, erro: 'Já existe estado.' });
     const novo = estadoLimpo(b.estado);
     if (!novo) return json(res, 400, { erro: 'Estado inválido.' });
     db.estado = novo;
-    registar(a, b.op === 'iniciar' ? 'lançou os dados iniciais' : 'substituiu todos os dados', 'inicio');
+    registar(a, texto(b.op === 'iniciar' ? 'act.inicio' : 'act.substituiu'), 'inicio');
   } else {
     const e = db.estado;
     if (!e) return json(res, 409, { ...base, erro: 'Sem estado.' });
     if (b.op === 'marcar' && typeof b.chave === 'string' && b.chave && b.chave.length <= 200 && typeof b.valor === 'boolean') {
       if (b.valor) e.done[b.chave] = 1; else delete e.done[b.chave];
       podarMarcacoes();
-      registar(a, `${b.valor ? 'marcou' : 'desmarcou'} «${titulo(e, b.chave.split('|')[0])}»`, b.valor ? 'marcou' : 'desmarcou');
-    } else if (b.op === 'limpar') { e.done = {}; registar(a, 'limpou todas as marcações', 'limpar'); }
+      registar(a, texto(b.valor ? 'act.marcou' : 'act.desmarcou', { titulo: titulo(e, b.chave.split('|')[0]) }), b.valor ? 'marcou' : 'desmarcou');
+    } else if (b.op === 'limpar') { e.done = {}; registar(a, texto('act.limpou'), 'limpar'); }
     else if (b.op === 'troca' && typeof b.chave === 'string' && b.chave && b.chave.length <= 100 && (b.valor === null || (Number.isInteger(b.valor) && b.valor >= 0 && b.valor <= 2))) {
       if (b.valor === null) delete e.ov[b.chave]; else e.ov[b.chave] = b.valor;
-      const alvo = b.chave.startsWith('lixo|') ? 'o lixo de ' + b.chave.slice(5) : b.chave.split('|')[1];
-      registar(a, b.valor === null ? `repôs o responsável de ${alvo}` : `passou ${alvo} para ${db.pessoas[b.valor]}`, 'troca');
+      const alvo = b.chave.startsWith('lixo|') ? texto('act.alvoLixo', { data: b.chave.slice(5) }) : b.chave.split('|')[1];
+      registar(a, b.valor === null ? texto('act.trocaRepor', { alvo }) : texto('act.trocaPara', { alvo, nome: db.pessoas[b.valor] }), 'troca');
     } else if (b.op === 'tarefa') {
       const t = tarefaLimpa(b.tarefa);
       if (!t) return json(res, 400, { erro: 'Tarefa inválida.' });
       const i = e.tasks.findIndex((x) => x.id === t.id);
       if (i >= 0) e.tasks[i] = t; else if (e.tasks.length >= 200) return json(res, 400, { erro: 'Demasiadas tarefas.' }); else e.tasks.push(t);
-      registar(a, `${i >= 0 ? 'editou' : 'criou'} a tarefa «${t.title}»`, i >= 0 ? 'editou' : 'criou');
+      registar(a, texto(i >= 0 ? 'act.editou' : 'act.criou', { titulo: t.title }), i >= 0 ? 'editou' : 'criou');
     } else if (b.op === 'tarefa-apagar' && typeof b.tid === 'string') {
-      registar(a, `apagou a tarefa «${titulo(e, b.tid)}»`, 'apagou');
+      registar(a, texto('act.apagou', { titulo: titulo(e, b.tid) }), 'apagou');
       e.tasks = e.tasks.filter((x) => x.id !== b.tid);
     } else if (b.op === 'cfg' && ((b.campo === 'anchor' && DATA_ISO.test(b.valor || '')) || (b.campo === 'roomsBase' && MES_ISO.test(b.valor || '')) || (b.campo === 'trashOn' && typeof b.valor === 'boolean'))) {
       e[b.campo] = b.valor;
-      registar(a, { anchor: `mudou a Semana 1 para ${b.valor}`, roomsBase: `mudou o mês de partida dos quartos para ${b.valor}`, trashOn: b.valor ? 'ligou o lixo' : 'desligou o lixo' }[b.campo], b.campo === 'trashOn' ? 'lixo' : 'config');
+      registar(a, { anchor: texto('act.semana1', { valor: b.valor }), roomsBase: texto('act.mesQuartos', { valor: b.valor }), trashOn: texto(b.valor ? 'act.lixoOn' : 'act.lixoOff') }[b.campo], b.campo === 'trashOn' ? 'lixo' : 'config');
     } else return json(res, 400, { erro: 'Operação inválida.' });
   }
   db.versao++; gravar();
@@ -293,16 +304,31 @@ async function admin(req, res, rota) {
   if (rota === '/api/admin/dados' && req.method === 'GET') {
     return json(res, 200, { agora: Date.now(), config: db.config, pessoas: db.pessoas, aparelhos: Object.values(db.aparelhos).sort((x, y) => y.ultimo - x.ultimo) });
   }
+  if (rota === '/api/admin/textos' && req.method === 'GET') return json(res, 200, { def: TEXTOS.DEF, grupos: TEXTOS.GRUPOS, textos: db.textos, tv: db.textosV });
   if (rota === '/api/admin/atividade' && req.method === 'GET') return json(res, 200, { itens: db.historico });
   if (rota === '/api/admin/backup' && req.method === 'GET') {
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'Content-Disposition': `attachment; filename="tarefas-porto-${new Date().toISOString().slice(0, 10)}.json"` });
     return res.end(JSON.stringify(db, null, 1));
   }
-  let b; try { b = await lerCorpo(req); } catch (e) { return json(res, 400, { erro: 'Pedido inválido.' }); }
+  let b; try { b = await lerCorpo(req, 262144); } catch (e) { return json(res, 400, { erro: 'Pedido inválido.' }); }
+  if (rota === '/api/admin/textos' && req.method === 'POST') {
+    if (b.repor === 'tudo') db.textos = {};
+    else if (b.alteracoes && typeof b.alteracoes === 'object') {
+      for (const [k, v] of Object.entries(b.alteracoes)) {
+        if (!TEXTO_DEF[k]) return json(res, 400, { erro: 'Texto desconhecido: ' + k });
+        if (v === null) { delete db.textos[k]; continue; }
+        const ok = textoValido(k, v);
+        if (ok === null) return json(res, 400, { erro: 'Valor inválido em ' + k });
+        if (JSON.stringify(ok) === JSON.stringify(TEXTO_DEF[k].v)) delete db.textos[k]; else db.textos[k] = ok;
+      }
+    } else return json(res, 400, { erro: 'Pedido inválido.' });
+    db.textosV++; gravar();
+    return json(res, 200, { tv: db.textosV, textos: db.textos });
+  }
   if (rota === '/api/admin/pessoas' && req.method === 'POST') {
     const nomes = Array.isArray(b.pessoas) ? b.pessoas.map((n) => limpa(n, 20)) : [];
     if (nomes.length !== 3 || nomes.some((n) => !n)) return json(res, 400, { erro: 'Indica os 3 nomes.' });
-    db.pessoas = nomes; db.versao++; registar({ etiqueta: 'Admin' }, 'mudou os nomes das pessoas'); gravar();
+    db.pessoas = nomes; db.versao++; registar({ etiqueta: texto('act.admin') }, texto('act.nomesAdmin')); gravar();
     return json(res, 200, { pessoas: db.pessoas });
   }
   if (rota === '/api/admin/config' && req.method === 'POST') {
@@ -327,6 +353,7 @@ async function admin(req, res, rota) {
 const servidor = http.createServer((req, res) => {
   const caminho = req.url.split('?')[0];
   if (caminho === '/api/hello' && req.method === 'POST') return hello(req, res).catch(() => json(res, 500, { erro: 'Erro interno.' }));
+  if (caminho === '/api/textos' && req.method === 'GET') return json(res, 200, { tv: db.textosV, textos: db.textos });
   if (caminho === '/api/saude' && req.method === 'GET') return json(res, 200, { ok: true, versao: db.versao, aparelhos: Object.keys(db.aparelhos).length });
   if (caminho === '/api/atividade' && req.method === 'GET') {
     if (excede('atividade:' + ipDe(req), 120, 60e3)) return json(res, 429, { erro: 'Demasiados pedidos.' });
@@ -345,6 +372,12 @@ const servidor = http.createServer((req, res) => {
     return res.end('Não encontrado');
   }
   fs.readFile(path.join(__dirname, entrada[0]), (err, conteudo) => {
+    if (!err && (caminho === '/' || caminho === '/index.html')) conteudo = Buffer.from(conteudo.toString('utf8')
+      .replace('<title>Tarefas Porto</title>', () => `<title>${esc(texto('app.nome'))}</title>`)
+      .replace('name="apple-mobile-web-app-title" content="Tarefas"', () => `name="apple-mobile-web-app-title" content="${esc(texto('app.nomeCurto'))}"`));
+    if (!err && caminho === '/manifest.webmanifest') {
+      try { const m = JSON.parse(conteudo.toString('utf8')); m.name = texto('app.nome'); m.short_name = texto('app.nomeCurto'); m.description = texto('app.descricao'); conteudo = Buffer.from(JSON.stringify(m, null, 2)); } catch (e) { /* fica o ficheiro */ }
+    }
     if (err) {
       res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
       return res.end('Erro interno');

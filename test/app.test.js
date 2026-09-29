@@ -154,3 +154,34 @@ test('cabeçalhos de segurança e /api/saude', async () => {
   assert.match(h.headers.get('content-security-policy'), /frame-ancestors 'none'/);
   assert.strictEqual((await (await fetch(base + '/api/saude')).json()).ok, true);
 });
+
+/* ---------- textos configuráveis ---------- */
+test('textos: dicionário, edição pelo admin, validação e uso no servidor', async () => {
+  const ad = await (await fetch(base + '/api/admin/textos', { headers: { Cookie: cookie } })).json();
+  assert.ok(ad.def.length > 200 && ad.grupos.length > 5);
+  assert.deepStrictEqual((await (await fetch(base + '/api/textos')).json()).textos, {}, 'sem alterações no início');
+  assert.strictEqual((await fetch(base + '/api/admin/textos')).status, 401, 'só o admin lê a lista completa');
+  // muda o texto do feed e da app
+  const tv0 = (await (await fetch(base + '/api/textos')).json()).tv;
+  const r = await adm('/api/admin/textos', { alteracoes: { 'act.marcou': 'acabou «{titulo}» 🎯', 'graca.marcou': ['top!', 'boa!'], 'app.nome': 'Casa Porto <3' } });
+  assert.strictEqual(r.status, 200);
+  const pub = await (await fetch(base + '/api/textos')).json();
+  assert.ok(pub.tv > tv0); assert.strictEqual(pub.textos['app.nome'], 'Casa Porto <3');
+  await post('/api/hello', { id: A });
+  await op(A, { op: 'marcar', chave: 't1|2026-09-29|0|9', valor: true });
+  const it = (await (await fetch(`${base}/api/atividade?id=${A}`)).json()).itens[0];
+  assert.match(it.texto, /^acabou «Loiça» 🎯 — (top!|boa!)$/);
+  // título da página e manifest seguem o nome
+  assert.match(await (await fetch(base + '/')).text(), /<title>Casa Porto &lt;3<\/title>/);
+  assert.strictEqual((await (await fetch(base + '/manifest.webmanifest')).json()).name, 'Casa Porto <3');
+  // validação
+  assert.strictEqual((await adm('/api/admin/textos', { alteracoes: { 'nao.existe': 'x' } })).status, 400);
+  assert.strictEqual((await adm('/api/admin/textos', { alteracoes: { 'graca.marcou': 'texto solto' } })).status, 400, 'lista tem de ser lista');
+  assert.strictEqual((await adm('/api/admin/textos', { alteracoes: { 'app.nome': ['a'] } })).status, 400, 'texto simples não é lista');
+  // repor um / repor tudo; valor igual ao original apaga a alteração
+  await adm('/api/admin/textos', { alteracoes: { 'app.nome': null, 'act.marcou': 'marcou «{titulo}»' } });
+  assert.strictEqual(Object.keys((await (await fetch(base + '/api/textos')).json()).textos).length, 1, 'só resta graca.marcou');
+  await adm('/api/admin/textos', { repor: 'tudo' });
+  assert.deepStrictEqual((await (await fetch(base + '/api/textos')).json()).textos, {});
+  assert.match(await (await fetch(base + '/textos.js')).text(), /TEXTOS_DEF/);
+});

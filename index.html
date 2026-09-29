@@ -18,6 +18,7 @@
 @media(prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#0f1017;--card:#181a25;--ink:#eceef7;--mute:#9297b0;--line:#2a2d3d;--pri:#818cf8;--pri-ink:#0f1017;--chip:#232636;--p0:#2dd4bf;--p1:#fbbf24;--p2:#a78bfa;--shadow:none;color-scheme:dark}}
 :root[data-theme=dark]{--bg:#0f1017;--card:#181a25;--ink:#eceef7;--mute:#9297b0;--line:#2a2d3d;--pri:#818cf8;--pri-ink:#0f1017;--chip:#232636;--p0:#2dd4bf;--p1:#fbbf24;--p2:#a78bfa;--shadow:none;color-scheme:dark}
 *{box-sizing:border-box}
+[hidden]{display:none!important}
 html{-webkit-text-size-adjust:100%}
 body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
 button,input,select,textarea{font:inherit;color:inherit}
@@ -127,21 +128,37 @@ button:focus-visible,select:focus-visible,input:focus-visible,summary:focus-visi
 <dialog id="dlg"></dialog>
 <div id="toast" role="status" aria-live="polite"></div>
 <input type="file" id="file" accept=".json,application/json" hidden>
+<script src="textos.js"></script>
 <script>
 'use strict';
 /* ---------- helpers ---------- */
-const DAYS=['Seg','Ter','Qua','Qui','Sex','Sáb','Dom'];
-const DAYS_LONG=['Segunda','Terça','Quarta','Quinta','Sexta','Sábado','Domingo'];
 const COMMON=['Cozinha','Sala','Casa de banho'];
-const REPEAT={daily:'Diária',w2:'2x por semana',w1:'1x por semana',need:'Conforme necessário',wday:'Semanal em dia fixo',once:'Uma vez'};
+const REPEATS=['daily','w2','w1','need','wday','once'];
 const KEY='tarefas-porto-v1';
 const TKEY='tarefas-porto-tema',VERSAO='29/09/2026';
 function temaAtual(){try{return localStorage.getItem(TKEY)||'auto'}catch(e){return 'auto'}}
 function aplicarTema(k){const r=document.documentElement;if(k==='light'||k==='dark')r.setAttribute('data-theme',k);else r.removeAttribute('data-theme');try{localStorage.setItem(TKEY,k)}catch(e){}}
 aplicarTema(temaAtual());
-function haQuanto(t){const m=Math.max(0,(Date.now()-t)/60000);if(m<1.5)return 'agora mesmo';if(m<60)return 'há '+Math.round(m)+' min';if(m<1440)return 'há '+Math.round(m/60)+' h';return 'há '+Math.round(m/1440)+' d'}
+function haQuanto(t){const m=Math.max(0,(Date.now()-t)/60000);if(m<1.5)return TP('tempo.agora');if(m<60)return TP('tempo.min',{n:Math.round(m)});if(m<1440)return TP('tempo.h',{n:Math.round(m/60)});return TP('tempo.d',{n:Math.round(m/1440)})}
 const mod=(a,n)=>((a%n)+n)%n;
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+/* ---------- textos (o admin pode mudar todos; os originais vêm de textos.js) ---------- */
+const TKEYS='tarefas-porto-textos';
+const TDEF=Object.fromEntries((window.TEXTOS_DEF||[]).map(d=>[d.k,d.v]));
+let TOV={};try{TOV=JSON.parse(localStorage.getItem(TKEYS)||'{}')||{}}catch(e){TOV={}}
+let tvSrv=-1;
+function tRaw(k){let v=TOV[k]!==undefined?TOV[k]:TDEF[k];if(Array.isArray(v))v=v.length?v[Math.floor(Math.random()*v.length)]:'';return v==null?k:String(v)}
+// T: HTML seguro (escapa, **negrito**; variáveis escapadas, menos as que acabam em Html). TP: texto simples.
+function T(k,vars){return esc(tRaw(k)).replace(/\*\*(.+?)\*\*/g,'<b>$1</b>').replace(/\{(\w+)\}/g,(m,n)=>vars&&vars[n]!==undefined?(/Html$/.test(n)?String(vars[n]):esc(vars[n])):m)}
+function TP(k,vars){return tRaw(k).replace(/\{(\w+)\}/g,(m,n)=>vars&&vars[n]!==undefined?String(vars[n]):m)}
+const dC=i=>TP('dia.c'+i),dL=i=>TP('dia.l'+i);
+function aplicarTitulo(){const h=document.querySelector('header h1');if(h)h.textContent=TP('app.emoji')+' '+TP('app.nome');document.title=TP('app.nome')}
+async function carregarTextos(){
+  if(!/^https?:$/.test(location.protocol))return;
+  try{const r=await fetch('/api/textos',{cache:'no-store'});if(!r.ok)return;const j=await r.json();
+    TOV=j.textos||{};tvSrv=j.tv;try{localStorage.setItem(TKEYS,JSON.stringify(TOV))}catch(e){}
+    if(typeof renderSeguro==='function'&&bloqueado===false&&estadoServ==='ativo')renderSeguro()}catch(e){}
+}
 const pad=n=>String(n).padStart(2,'0');
 const fmt=d=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
 const parse=s=>{const[y,m,d]=s.split('-').map(Number);return new Date(y,m-1,d)};
@@ -228,7 +245,7 @@ function genWeek(mon){
     if(!t.active)continue;
     const ps=personsFor(t,mon);
     const qnote=p=>{if(t.who!=='quartos')return '';const r=roomsMonth(mon);
-      return r.ind===p?'Quarto individual':'Quarto partilhado com '+who(r.shared.find(x=>x!==p))};
+      return r.ind===p?TP('semana.subInd'):TP('semana.subPartilhado',{nome:who(r.shared.find(x=>x!==p))})};
     for(const p of ps){
       const ex={sub:qnote(p)};
       if(t.repeat==='daily')days.forEach(d=>push(t,p,d,0,'day',ex));
@@ -239,8 +256,8 @@ function genWeek(mon){
     }
   }
   if(S.trashOn){
-    const T={id:'lixo',title:'Levar o lixo',room:'Lixo',who:'rota',repeat:'wday'};
-    TRASH_DAYS.forEach(k=>{const d=days[k];out.push({key:'lixo|'+fmt(d),t:T,p:respTrash(d),date:d,kind:'day',slot:0,sub:'',trash:true})});
+    const Tl={id:'lixo',title:TP('lixo.titulo'),room:'Lixo',who:'rota',repeat:'wday'};
+    TRASH_DAYS.forEach(k=>{const d=days[k];out.push({key:'lixo|'+fmt(d),t:Tl,p:respTrash(d),date:d,kind:'day',slot:0,sub:'',trash:true})});
   }
   return out;
 }
@@ -254,15 +271,15 @@ function itemRow(o,{showPerson=false,showDay=false}={}){
   const tags=[];
   if(showPerson)tags.push(`<span class="tag"><span class="dot" style="background:${PCOL(o.p)}"></span>${esc(who(o.p))}</span>`);
   if(o.t.room&&!o.trash)tags.push(`<span class="tag">${esc(o.t.room)}</span>`);
-  if(o.optional)tags.push('<span class="tag">se necessário</span>');
+  if(o.optional)tags.push(`<span class="tag">${T('tag.opcional')}</span>`);
   if(o.kind==='week'&&o.t.repeat==='w2')tags.push(`<span class="tag">${o.slot+1}/2</span>`);
-  if(showDay&&o.date)tags.push(`<span class="tag">${DAYS[dow(o.date)]} ${dm(o.date)}</span>`);
+  if(showDay&&o.date)tags.push(`<span class="tag">${esc(dC(dow(o.date)))} ${dm(o.date)}</span>`);
   const sub=[o.sub,o.t.note].filter(Boolean).join(' · ');
   return `<div class="item ${d?'done':''}"><input type="checkbox" id="c${esc(o.key)}" data-act="toggle" data-k="${esc(o.key)}" ${d?'checked':''}>
-   <label for="c${esc(o.key)}"><span class="t">${o.trash?'🗑️ ':''}${esc(o.t.title)}${tags.join('')}</span>${sub?`<span class="s">${esc(sub)}</span>`:''}</label></div>`;
+   <label for="c${esc(o.key)}"><span class="t">${o.trash?T('lixo.emoji')+' ':''}${esc(o.t.title)}${tags.join('')}</span>${sub?`<span class="s">${esc(sub)}</span>`:''}</label></div>`;
 }
 function filterChips(){
-  return `<div class="chips" role="group" aria-label="Filtrar por pessoa"><button class="chip" data-act="filter" data-i="-1" aria-pressed="${ui.filter===-1}">Todos</button>`+
+  return `<div class="chips" role="group" aria-label="${T('filtro.aria')}"><button class="chip" data-act="filter" data-i="-1" aria-pressed="${ui.filter===-1}">${T('filtro.todos')}</button>`+
    S.people.map((n,i)=>`<button class="chip" data-act="filter" data-i="${i}" aria-pressed="${ui.filter===i}"><span class="dot" style="background:${PCOL(i)}"></span>${esc(n)}</button>`).join('')+'</div>';
 }
 function viewHoje(){
@@ -272,25 +289,25 @@ function viewHoje(){
   const dayItems=list.filter(o=>o.kind==='day'),weekItems=list.filter(o=>o.kind==='week');
   const trash=dayItems.find(o=>o.trash);
   const sec=(title,items,sd)=>items.length?`<div class="card"><h3>${title}</h3>${items.map(o=>itemRow(o,{showPerson:ui.filter===-1,showDay:sd})).join('')}</div>`:'';
-  return `<div class="card"><div class="row"><div class="grow"><div class="muted">${DAYS_LONG[dow(now)]}, ${dm(now)} · Semana ${weekNo(mon)} da rotação</div>
-    <div class="big">${pr.d}/${pr.n} feitas</div></div></div><div style="margin-top:10px">${bar(pr)}</div>
-    ${trash?`<p class="muted" style="margin:10px 0 0">🗑️ Hoje o lixo é de <b style="color:${PCOL(trash.p)}">${esc(who(trash.p))}</b>.</p>`:''}</div>`+
-    sec('Hoje',dayItems.filter(o=>!o.trash||true),false)+
-    sec('Esta semana',weekItems,true)+
-    (!list.length?'<div class="empty">Sem tarefas para hoje 🎉</div>':'');
+  return `<div class="card"><div class="row"><div class="grow"><div class="muted">${T('hoje.cabecalho',{dia:dL(dow(now)),data:dm(now),n:weekNo(mon)})}</div>
+    <div class="big">${T('hoje.feitas',{d:pr.d,n:pr.n})}</div></div></div><div style="margin-top:10px">${bar(pr)}</div>
+    ${trash?`<p class="muted" style="margin:10px 0 0">${T('hoje.lixo',{emoji:TP('lixo.emoji'),nomeHtml:`<b style="color:${PCOL(trash.p)}">${esc(who(trash.p))}</b>`})}</p>`:''}</div>`+
+    sec(T('hoje.tituloHoje'),dayItems.filter(o=>!o.trash||true),false)+
+    sec(T('hoje.tituloSemana'),weekItems,true)+
+    (!list.length?`<div class="empty">${T('hoje.vazio')}</div>`:'');
 }
 function weekNav(){
   const mon=ui.week,cur=fmt(mon)===fmt(mondayOf(today()));
-  return `<div class="wk"><button class="btn sm" data-act="wk" data-d="-1" aria-label="Semana anterior">‹</button>
-   <div style="text-align:center;min-width:150px"><b>${dm(mon)} – ${dm(addDays(mon,6))}</b><div class="muted">Semana ${weekNo(mon)}${cur?' · atual':''}</div></div>
-   <button class="btn sm" data-act="wk" data-d="1" aria-label="Semana seguinte">›</button>${cur?'':'<button class="btn sm" data-act="wk" data-d="0">Hoje</button>'}</div>`;
+  return `<div class="wk"><button class="btn sm" data-act="wk" data-d="-1" aria-label="${T('semana.anterior')}">‹</button>
+   <div style="text-align:center;min-width:150px"><b>${dm(mon)} – ${dm(addDays(mon,6))}</b><div class="muted">${T(cur?'semana.atual':'semana.rotulo',{n:weekNo(mon)})}</div></div>
+   <button class="btn sm" data-act="wk" data-d="1" aria-label="${T('semana.seguinte')}">›</button>${cur?'':`<button class="btn sm" data-act="wk" data-d="0">${T('semana.voltarHoje')}</button>`}</div>`;
 }
 function viewSemana(){
   const mon=ui.week,occ=genWeek(mon),now=today();
   const rooms=COMMON.map(r=>{const p=respRoom(r,mon),ch=S.ov[`${fmt(mon)}|${r}`]!==undefined;
-    return `<div class="row" style="justify-content:space-between;padding:4px 0"><span>${r}</span><span>${peopleSelect(`${fmt(mon)}|${r}`,p,mod(COMMON.indexOf(r)+weekAbs(mon),3))}${ch?'<span class="tag">trocado</span>':''}</span></div>`}).join('');
+    return `<div class="row" style="justify-content:space-between;padding:4px 0"><span>${r}</span><span>${peopleSelect(`${fmt(mon)}|${r}`,p,mod(COMMON.indexOf(r)+weekAbs(mon),3))}${ch?`<span class="tag">${T('tag.trocado')}</span>`:''}</span></div>`}).join('');
   const trash=S.trashOn?TRASH_DAYS.map(k=>{const d=addDays(mon,k),p=respTrash(d),def=mod(weekAbs(mon)*4+TRASH_DAYS.indexOf(k),3);
-    return `<div class="row" style="justify-content:space-between;padding:4px 0"><span>🗑️ ${DAYS_LONG[k]} ${dm(d)}</span><span>${peopleSelect('lixo|'+fmt(d),p,def)}${S.ov['lixo|'+fmt(d)]!==undefined?'<span class="tag">trocado</span>':''}</span></div>`}).join(''):'';
+    return `<div class="row" style="justify-content:space-between;padding:4px 0"><span>${T('lixo.emoji')} ${esc(dL(k))} ${dm(d)}</span><span>${peopleSelect('lixo|'+fmt(d),p,def)}${S.ov['lixo|'+fmt(d)]!==undefined?`<span class="tag">${T('tag.trocado')}</span>`:''}</span></div>`}).join(''):'';
   const q=roomsMonth(mon);
   const wide=matchMedia('(min-width:760px)').matches;
   const cards=S.people.map((n,p)=>{
@@ -300,56 +317,56 @@ function viewSemana(){
     const groups=[...new Set(daily.map(o=>o.t.id))].map(id=>{
       const os=daily.filter(o=>o.t.id===id),t=os[0].t,dk=id+'|'+p;
       const td=os.find(o=>fmt(o.date)===fmt(now)),n=os.filter(isDone).length,open=!!ui.dayOpen[dk];
-      const box=td?`<input type="checkbox" id="c${esc(td.key)}" data-act="toggle" data-k="${esc(td.key)}" ${isDone(td)?'checked':''} aria-label="Feito hoje">`:'<span class="ph"></span>';
+      const box=td?`<input type="checkbox" id="c${esc(td.key)}" data-act="toggle" data-k="${esc(td.key)}" ${isDone(td)?'checked':''} aria-label="${T('linha.feitoHoje')}">`:'<span class="ph"></span>';
       return `<div class="item ${td&&isDone(td)?'done':''}">${box}<label ${td?`for="c${esc(td.key)}"`:''}><span class="t">${esc(t.title)}</span>${os[0].sub?`<span class="s">${esc(os[0].sub)}</span>`:''}</label>
-        <button class="cnt" data-act="days" data-dk="${esc(dk)}" aria-expanded="${open}" aria-label="Ver os dias">${n}/7 <span>${open?'▴':'▾'}</span></button>
-        ${open?`<div class="days">${os.map(o=>`<button class="${isDone(o)?'on':''} ${fmt(o.date)===fmt(now)?'today':''}" data-act="toggle" data-k="${esc(o.key)}" aria-pressed="${isDone(o)}" aria-label="${DAYS_LONG[dow(o.date)]}">${DAYS[dow(o.date)][0]}</button>`).join('')}</div>`:''}</div>`}).join('');
+        <button class="cnt" data-act="days" data-dk="${esc(dk)}" aria-expanded="${open}" aria-label="${T('linha.verDias')}">${n}/7 <span>${open?'▴':'▾'}</span></button>
+        ${open?`<div class="days">${os.map(o=>`<button class="${isDone(o)?'on':''} ${fmt(o.date)===fmt(now)?'today':''}" data-act="toggle" data-k="${esc(o.key)}" aria-pressed="${isDone(o)}" aria-label="${esc(dL(dow(o.date)))}">${esc(dC(dow(o.date))[0])}</button>`).join('')}</div>`:''}</div>`}).join('');
     const rest=mine.filter(o=>!(o.kind==='day'&&o.t.repeat==='daily')).sort((a,b)=>(a.date?dow(a.date):9)-(b.date?dow(b.date):9));
     const roomsOf=COMMON.filter(r=>respRoom(r,mon)===p);
     const open=ui.filter!==-1||(ui.open[p]??wide);
     return `<details class="card pcard" data-p="${p}" ${open?'open':''} style="border-top:4px solid ${PCOL(p)}"><summary><div class="row"><h2 class="grow" style="margin:0"><span class="dot" style="background:${PCOL(p)}"></span>${esc(n)}</h2><b>${pr.d}/${pr.n}</b><span class="chev">▸</span></div><div style="margin-top:8px">${bar(pr)}</div>
-      <p class="muted" style="margin:8px 0 0">${roomsOf.length?'Responsável por: <b>'+roomsOf.join(', ')+'</b>':'Sem divisão comum'} · ${q.ind===p?'quarto individual':'quarto partilhado'}</p></summary>
-      <div class="body">${groups}${rest.map(o=>itemRow(o,{showDay:true})).join('')}${!mine.length?'<div class="empty">Nada atribuído</div>':''}</div></details>`}).join('');
+      <p class="muted" style="margin:8px 0 0">${roomsOf.length?T('semana.responsavelPor',{divisoes:roomsOf.join(', ')}):T('semana.semDivisao')} · ${q.ind===p?T('semana.quartoInd'):T('semana.quartoPart')}</p></summary>
+      <div class="body">${groups}${rest.map(o=>itemRow(o,{showDay:true})).join('')}${!mine.length?`<div class="empty">${T('semana.nadaAtribuido')}</div>`:''}</div></details>`}).join('');
   return `<div class="card row">${weekNav()}<span class="grow"></span></div>
-   <details class="card"><summary><b>Responsáveis da semana</b> <span class="muted">· trocar</span></summary><div style="margin-top:8px">${rooms}${trash?'<hr style="border:0;border-top:1px solid var(--line)">'+trash:''}</div></details>
+   <details class="card"><summary><b>${T('semana.responsaveis')}</b> <span class="muted">${T('semana.trocar')}</span></summary><div style="margin-top:8px">${rooms}${trash?'<hr style="border:0;border-top:1px solid var(--line)">'+trash:''}</div></details>
    <div class="grid3">${cards}</div>`;
 }
 function peopleSelect(k,val,def){
-  return `<select class="sm" data-act="ov" data-k="${esc(k)}" data-def="${def}" aria-label="Responsável">${S.people.map((n,i)=>`<option value="${i}" ${i===val?'selected':''}>${esc(n)}</option>`).join('')}</select>`;
+  return `<select class="sm" data-act="ov" data-k="${esc(k)}" data-def="${def}" aria-label="${T('semana.responsavel')}">${S.people.map((n,i)=>`<option value="${i}" ${i===val?'selected':''}>${esc(n)}</option>`).join('')}</select>`;
 }
 function viewRot(){
   const now=today(),mon0=mondayOf(now);
-  const wk=[0,1,2].map(w=>`<tr class="${mod(weekAbs(mon0),3)===w?'now':''}"><td><b>Semana ${w+1}</b></td>`+
+  const wk=[0,1,2].map(w=>`<tr class="${mod(weekAbs(mon0),3)===w?'now':''}"><td><b>${T('semana.rotulo',{n:w+1})}</b></td>`+
     S.people.map((n,p)=>`<td>${COMMON[mod(p-w,3)]}</td>`).join('')+'</tr>').join('');
   const months=[...Array(12)].map((_,i)=>{const d=new Date(now.getFullYear(),now.getMonth()+i,1),q=roomsMonth(d);
     return `<tr class="${i===0?'now':''}"><td>${monthName(d)}</td><td>${esc(who(q.ind))}</td><td>${q.shared.map(who).map(esc).join(' + ')}</td></tr>`}).join('');
-  const tr=[0,1,2].map(w=>`<tr class="${mod(weekAbs(mon0),3)===w?'now':''}"><td><b>Semana ${w+1}</b></td>`+
+  const tr=[0,1,2].map(w=>`<tr class="${mod(weekAbs(mon0),3)===w?'now':''}"><td><b>${T('semana.rotulo',{n:w+1})}</b></td>`+
     TRASH_DAYS.map((k,j)=>`<td>${esc(who(mod(w*4+j,3)))}</td>`).join('')+'</tr>').join('');
-  return `<div class="card"><h2>Áreas comuns — rotação de 3 semanas</h2><div class="scroll"><table><tr><th></th>${S.people.map(n=>`<th>${esc(n)}</th>`).join('')}</tr>${wk}</table></div>
-   <p class="muted">Linha destacada = semana atual. Depois da Semana 3 volta à Semana 1.</p></div>
-   <div class="card"><h2>Quartos — rotação mensal</h2><div class="scroll"><table><tr><th>Mês</th><th>Quarto individual</th><th>Quarto partilhado (conjunto)</th></tr>${months}</table></div>
-   <p class="muted">A sequência repete-se de 3 em 3 meses. Cada pessoa limpa o quarto que ocupa nesse mês; no partilhado os dois ocupantes são responsáveis.</p></div>
-   <div class="card"><h2>Lixo — de 2 em 2 dias</h2><div class="scroll"><table><tr><th></th><th>Segunda</th><th>Quarta</th><th>Sexta</th><th>Domingo</th></tr>${tr}</table></div></div>`;
+  return `<div class="card"><h2>${T('rot.areasTitulo')}</h2><div class="scroll"><table><tr><th></th>${S.people.map(n=>`<th>${esc(n)}</th>`).join('')}</tr>${wk}</table></div>
+   <p class="muted">${T('rot.areasNota')}</p></div>
+   <div class="card"><h2>${T('rot.quartosTitulo')}</h2><div class="scroll"><table><tr><th>${T('rot.colMes')}</th><th>${T('rot.colInd')}</th><th>${T('rot.colPart')}</th></tr>${months}</table></div>
+   <p class="muted">${T('rot.quartosNota')}</p></div>
+   <div class="card"><h2>${T('rot.lixoTitulo')}</h2><div class="scroll"><table><tr><th></th>${TRASH_DAYS.map(k=>`<th>${esc(dL(k))}</th>`).join('')}</tr>${tr}</table></div></div>`;
 }
-const wholbl=t=>t.who==='rota'?'rotação da divisão':t.who==='quartos'?'ocupantes do quarto':t.who==='todos'?'todos':t.who==='rodar'?'rotativo':who(Number(t.who));
-const repTxt=t=>t.repeat==='wday'?`Semanal (${DAYS_LONG[t.weekday||0]})`:t.repeat==='once'?'Uma vez em '+(t.date?parse(t.date).toLocaleDateString('pt-PT'):'?'):REPEAT[t.repeat];
+const wholbl=t=>['rota','quartos','todos','rodar'].includes(t.who)?TP('quem.'+t.who):who(Number(t.who));
+const repTxt=t=>t.repeat==='wday'?TP('freq.wdayEm',{dia:dL(t.weekday||0)}):t.repeat==='once'?TP('freq.onceEm',{data:t.date?parse(t.date).toLocaleDateString('pt-PT'):'?'}):TP('freq.'+t.repeat);
 function listaHtml(){
   const q=(ui.q||'').trim().toLowerCase(),mon=mondayOf(today());
   const L=S.tasks.filter(t=>(ui.room==='todas'||t.room===ui.room)&&(!q||[t.title,t.note,t.room].join(' ').toLowerCase().includes(q)));
-  if(!L.length)return '<div class="empty">Nenhuma tarefa encontrada.</div>';
+  if(!L.length)return `<div class="empty">${T('tarefas.nenhuma')}</div>`;
   return [...new Set(L.map(t=>t.room))].map(r=>`<div class="card"><h3>${esc(r)}</h3>`+L.filter(t=>t.room===r).map(t=>{
-    const semana=(t.who==='rota'||t.who==='rodar')?' · esta semana: <b>'+personsFor(t,mon).map(who).map(esc).join(', ')+'</b>':'';
+    const semana=(t.who==='rota'||t.who==='rodar')?' · '+T('tarefas.estaSemana',{nomes:personsFor(t,mon).map(who).join(', ')}):'';
     return `<div class="item" style="align-items:center;opacity:${t.active?1:.5}">
-     <div class="grow"><span class="t">${esc(t.title)}</span><span class="s">${repTxt(t)} · ${esc(wholbl(t))}${semana}${t.note?' · '+esc(t.note):''}</span></div>
-     <button class="btn sm" data-act="toggleActive" data-id="${t.id}">${t.active?'Pausar':'Ativar'}</button>
-     <button class="btn sm" data-act="edit" data-id="${t.id}">Editar</button></div>`}).join('')+'</div>').join('');
+     <div class="grow"><span class="t">${esc(t.title)}</span><span class="s">${esc(repTxt(t))} · ${esc(wholbl(t))}${semana}${t.note?' · '+esc(t.note):''}</span></div>
+     <button class="btn sm" data-act="toggleActive" data-id="${t.id}">${T(t.active?'tarefas.pausar':'tarefas.ativar')}</button>
+     <button class="btn sm" data-act="edit" data-id="${t.id}">${T('tarefas.editar')}</button></div>`}).join('')+'</div>').join('');
 }
 function subLista(){
   const rooms=[...new Set(S.tasks.map(t=>t.room))];
-  return `<div class="card row"><div class="grow"><h2 style="margin:0">Tarefas</h2><div class="muted">${S.tasks.filter(t=>t.active).length} ativas de ${S.tasks.length}</div></div><button class="btn pri" data-act="new">+ Nova tarefa</button></div>
-   <div class="card"><input type="search" data-act="q" placeholder="Procurar tarefa…" value="${esc(ui.q||'')}" style="width:100%;min-height:44px;border:1px solid var(--line);background:var(--card);border-radius:10px;padding:9px 11px" aria-label="Procurar tarefa">
-   <div class="chips" style="margin-top:10px">${['todas',...rooms].map(r=>`<button class="chip" data-act="room" data-r="${esc(r)}" aria-pressed="${ui.room===r}">${r==='todas'?'Todas':esc(r)}</button>`).join('')}</div>
-   <div style="margin-top:10px"><button class="btn sm" data-act="restaurar">Restaurar tarefas originais</button></div></div>
+  return `<div class="card row"><div class="grow"><h2 style="margin:0">${T('tarefas.titulo')}</h2><div class="muted">${T('tarefas.contagem',{a:S.tasks.filter(t=>t.active).length,n:S.tasks.length})}</div></div><button class="btn pri" data-act="new">${T('tarefas.nova')}</button></div>
+   <div class="card"><input type="search" data-act="q" placeholder="${T('tarefas.procurarPh')}" value="${esc(ui.q||'')}" style="width:100%;min-height:44px;border:1px solid var(--line);background:var(--card);border-radius:10px;padding:9px 11px" aria-label="${T('tarefas.procurarAria')}">
+   <div class="chips" style="margin-top:10px">${['todas',...rooms].map(r=>`<button class="chip" data-act="room" data-r="${esc(r)}" aria-pressed="${ui.room===r}">${r==='todas'?T('tarefas.todas'):esc(r)}</button>`).join('')}</div>
+   <div style="margin-top:10px"><button class="btn sm" data-act="restaurar">${T('tarefas.restaurar')}</button></div></div>
    <div id="lista">${listaHtml()}</div>`;
 }
 function subStats(){
@@ -357,8 +374,8 @@ function subStats(){
   const sem=[0,1,2,3].map(i=>{const mon=addDays(mon0,-7*i),occ=genWeek(mon);return {i,mon,occ,ok:mon>=a0,pp:S.people.map((n,p)=>progress(occ.filter(o=>o.p===p)))}});
   const tot=S.people.map((n,p)=>{let d=0,nn=0;sem.filter(x=>x.ok).forEach(x=>{d+=x.pp[p].d;nn+=x.pp[p].n});return {d,n:nn,pct:nn?Math.round(d/nn*100):0}});
   const cards=S.people.map((n,p)=>`<div class="card" style="border-top:4px solid ${PCOL(p)}"><div class="row"><h3 class="grow" style="margin:0"><span class="dot" style="background:${PCOL(p)}"></span>${esc(n)}</h3><b>${tot[p].n?tot[p].pct+'%':'—'}</b></div>${bar(tot[p])}
-    <p class="muted" style="margin:8px 0 4px">Últimas 4 semanas · ${tot[p].d}/${tot[p].n}${tot[p].n?' · <b>'+fraseNota(tot[p].pct)+'</b>':''}</p>
-    ${sem.map(x=>`<div class="row" style="justify-content:space-between;padding:3px 0;font-size:14px"><span>${dm(x.mon)} – ${dm(addDays(x.mon,6))}${x.i===0?' <span class="tag">atual</span>':''}</span><span>${x.ok?x.pp[p].d+'/'+x.pp[p].n:'—'}</span></div>`).join('')}</div>`).join('');
+    <p class="muted" style="margin:8px 0 4px">${T('stats.ultimas',{d:tot[p].d,n:tot[p].n})}${tot[p].n?' · <b>'+esc(fraseNota(tot[p].pct))+'</b>':''}</p>
+    ${sem.map(x=>`<div class="row" style="justify-content:space-between;padding:3px 0;font-size:14px"><span>${dm(x.mon)} – ${dm(addDays(x.mon,6))}${x.i===0?` <span class="tag">${T('tag.atual')}</span>`:''}</span><span>${x.ok?x.pp[p].d+'/'+x.pp[p].n:'—'}</span></div>`).join('')}</div>`).join('');
   const tarde=[],diarias=S.people.map(()=>0);
   sem.filter(x=>x.ok).forEach(x=>x.occ.forEach(o=>{
     if(o.optional||isDone(o))return;
@@ -367,11 +384,11 @@ function subStats(){
     else if(o.kind==='week'&&x.i>0)tarde.push(o);
   }));
   return `<div class="grid3">${cards}</div>
-   <p class="muted" style="margin:-2px 2px 12px">A percentagem conta as tarefas atribuídas a cada pessoa (com trocas incluídas). A semana atual ainda tem dias por vir.</p>
-   <div class="card"><h3>Em atraso</h3>${tarde.length?tarde.slice(0,40).map(o=>itemRow(o,{showPerson:true,showDay:true})).join('')+(tarde.length>40?`<p class="muted">E mais ${tarde.length-40}…</p>`:''):'<div class="empty" style="padding:14px">Nada em atraso. Casa a brilhar ✨🎉</div>'}
-   <p class="muted" style="margin:8px 0 0">${diarias.some(n=>n)?'Diárias por marcar: '+S.people.map((n,p)=>diarias[p]?esc(n)+' '+diarias[p]:'').filter(Boolean).join(' · ')+'. ':''}Só entram semanas desde a «Semana 1» das Definições.</p></div>`;
+   <p class="muted" style="margin:-2px 2px 12px">${T('stats.explicacao')}</p>
+   <div class="card"><h3>${T('stats.atraso')}</h3>${tarde.length?tarde.slice(0,40).map(o=>itemRow(o,{showPerson:true,showDay:true})).join('')+(tarde.length>40?`<p class="muted">${T('stats.maisN',{n:tarde.length-40})}</p>`:''):`<div class="empty" style="padding:14px">${T('stats.nadaAtraso')}</div>`}
+   <p class="muted" style="margin:8px 0 0">${diarias.some(n=>n)?T('stats.diarias')+S.people.map((n,p)=>diarias[p]?esc(n)+' '+diarias[p]:'').filter(Boolean).join(' · ')+'. ':''}${T('stats.rodape')}</p></div>`;
 }
-const fraseNota=p=>p>=90?'Máquina de limpar 🏆':p>=70?'Ritmo de campeão 💪':p>=40?'Vai andando, vai andando 🚶':p>=15?'A aquecer os motores 🔥':'Precisa de café ☕';
+const fraseNota=p=>TP(p>=90?'stats.nota90':p>=70?'stats.nota70':p>=40?'stats.nota40':p>=15?'stats.nota15':'stats.nota0');
 let ativTick=0;
 async function carregarAtividade(){
   const id=idAparelho();
@@ -383,32 +400,28 @@ async function carregarAtividade(){
   if(ui.tab==='tarefas'&&ui.sub==='ativ')renderSeguro();
 }
 function subAtiv(){
-  if(ui.ativ===null){carregarAtividade();return '<div class="empty">A carregar…</div>'}
-  return `<div class="card ativ"><h3>Atividade recente</h3>`+(ui.ativ.length?ui.ativ.map(h=>`<div class="item"><div class="grow"><span class="t"><span class="quem">${esc(h.quem)}</span> ${esc(h.texto)}</span><span class="s">${haQuanto(h.t)}</span></div></div>`).join(''):'<div class="empty" style="padding:14px">Silêncio total 🦗 Alguém tem de fazer alguma coisa! (ou estás sem ligação ao servidor)</div>')+'</div>';
+  if(ui.ativ===null){carregarAtividade();return `<div class="empty">${T('ativ.carregar')}</div>`}
+  return `<div class="card ativ"><h3>${T('ativ.titulo')}</h3>`+(ui.ativ.length?ui.ativ.map(h=>`<div class="item"><div class="grow"><span class="t"><span class="quem">${esc(h.quem)}</span> ${esc(h.texto)}</span><span class="s">${esc(haQuanto(h.t))}</span></div></div>`).join(''):`<div class="empty" style="padding:14px">${T('ativ.vazio')}</div>`)+'</div>';
 }
 function viewTarefas(){
-  const seg=`<div class="seg" role="tablist">${[['lista','Tarefas'],['stats','Estatísticas'],['ativ','Atividade']].map(([k,l])=>`<button role="tab" aria-selected="${ui.sub===k}" data-act="sub" data-k="${k}">${l}</button>`).join('')}</div>`;
+  const seg=`<div class="seg" role="tablist">${['lista','stats','ativ'].map(k=>`<button role="tab" aria-selected="${ui.sub===k}" data-act="sub" data-k="${k}">${T('sub.'+k)}</button>`).join('')}</div>`;
   return seg+(ui.sub==='stats'?subStats():ui.sub==='ativ'?subAtiv():subLista());
 }
 function viewMais(){
   const total=Object.keys(S.done).length;
-  return `<div class="card"><h2>Pessoas</h2><p class="muted" style="margin:0 0 10px">Mudar um nome muda para toda a gente.</p><div class="row">${S.people.map((n,i)=>`<div class="f" style="margin:0"><label>Pessoa ${i+1}</label><input type="text" value="${esc(n)}" maxlength="20" data-act="rename" data-i="${i}"></div>`).join('')}</div></div>
-  <div class="card"><h2>Rotação</h2>
-   <div class="f"><label>Segunda-feira da «Semana 1» (as semanas 2 e 3 seguem-se, e repete)</label><input type="date" value="${S.anchor}" data-act="anchor"></div>
-   <div class="f"><label>Mês de partida do quarto individual (é da 1.ª pessoa; depois roda 1 pessoa por mês)</label><input type="month" value="${S.roomsBase}" data-act="roomsBase"></div>
-   <label class="row"><input type="checkbox" data-act="trashOn" ${S.trashOn?'checked':''}> Incluir o lixo (seg, qua, sex, dom)</label></div>
-  <div class="card"><h2>Aparência</h2><div class="chips">${[['auto','Automático'],['light','Claro'],['dark','Escuro']].map(([k,l])=>`<button class="chip" data-act="tema" data-k="${k}" aria-pressed="${temaAtual()===k}">${l}</button>`).join('')}</div></div>
-  <div class="card"><h2>Sincronização</h2><p class="muted" style="margin:0 0 10px">${esc(textoSinc())}</p><button class="btn" data-act="sincNow">Sincronizar agora</button></div>
-  <div class="card"><h2>Dados</h2><p class="muted">As tarefas, marcações e definições são partilhadas por todos os aparelhos e atualizam sozinhas (${total} marcações). Exportar/Importar serve de cópia de segurança. <b>Atenção:</b> limpar, repor e importar afetam toda a gente.</p>
-   <div class="row"><button class="btn" data-act="export">Exportar</button><button class="btn" data-act="import">Importar</button>
-   <button class="btn" data-act="clearDone">Limpar marcações</button><button class="btn danger" data-act="reset">Repor tudo</button></div></div>
-  <details class="card"><summary><b>Como funciona</b></summary><ul style="margin:10px 0 0;padding-left:20px;line-height:1.6">
-   <li><b>Hoje</b>: o que tens para fazer hoje. Escolhe o teu nome no topo e a app lembra-se.</li>
-   <li><b>Semana</b>: um cartão por pessoa; nas tarefas diárias marcas hoje e o contador abre os outros dias.</li>
-   <li><b>Rotações</b>: quem faz cada divisão, os quartos do mês e o lixo.</li>
-   <li><b>Tarefas</b>: cria, edita ou pausa tarefas; vê estatísticas e a atividade recente.</li>
-   <li>Tudo é partilhado: o que uma pessoa marca aparece aos outros em poucos segundos. Sem rede, as alterações ficam guardadas e seguem quando voltar a ligação.</li></ul></details>
-  <div class="card"><h2>Sobre</h2><p class="muted" style="margin:0 0 10px">Tarefas Porto · versão ${VERSAO} · sem bugs conhecidos (os desconhecidos estão a esconder-se) 🐛</p><button class="btn" data-act="atualizar">Procurar atualização</button></div>`;
+  return `<div class="card"><h2>${T('mais.pessoas')}</h2><p class="muted" style="margin:0 0 10px">${T('mais.pessoasNota')}</p><div class="row">${S.people.map((n,i)=>`<div class="f" style="margin:0"><label>${T('mais.pessoaN',{n:i+1})}</label><input type="text" value="${esc(n)}" maxlength="20" data-act="rename" data-i="${i}"></div>`).join('')}</div></div>
+  <div class="card"><h2>${T('mais.rotacao')}</h2>
+   <div class="f"><label>${T('mais.semana1')}</label><input type="date" value="${S.anchor}" data-act="anchor"></div>
+   <div class="f"><label>${T('mais.mesQuartos')}</label><input type="month" value="${S.roomsBase}" data-act="roomsBase"></div>
+   <label class="row"><input type="checkbox" data-act="trashOn" ${S.trashOn?'checked':''}> ${T('mais.incluirLixo')}</label></div>
+  <div class="card"><h2>${T('mais.aparencia')}</h2><div class="chips">${[['auto','tema.auto'],['light','tema.claro'],['dark','tema.escuro']].map(([k,l])=>`<button class="chip" data-act="tema" data-k="${k}" aria-pressed="${temaAtual()===k}">${T(l)}</button>`).join('')}</div></div>
+  <div class="card"><h2>${T('mais.sinc')}</h2><p class="muted" style="margin:0 0 10px">${esc(textoSinc())}</p><button class="btn" data-act="sincNow">${T('mais.sincAgora')}</button></div>
+  <div class="card"><h2>${T('mais.dados')}</h2><p class="muted">${T('mais.dadosNota',{n:total})}</p>
+   <div class="row"><button class="btn" data-act="export">${T('mais.exportar')}</button><button class="btn" data-act="import">${T('mais.importar')}</button>
+   <button class="btn" data-act="clearDone">${T('mais.limpar')}</button><button class="btn danger" data-act="reset">${T('mais.repor')}</button></div></div>
+  <details class="card"><summary><b>${T('ajuda.titulo')}</b></summary><ul style="margin:10px 0 0;padding-left:20px;line-height:1.6">
+   ${[1,2,3,4,5].map(n=>`<li>${T('ajuda.b'+n)}</li>`).join('')}</ul></details>
+  <div class="card"><h2>${T('sobre.titulo')}</h2><p class="muted" style="margin:0 0 10px">${T('sobre.linha',{app:TP('app.nome'),versao:VERSAO})}</p><button class="btn" data-act="atualizar">${T('sobre.atualizar')}</button></div>`;
 }
 
 /* ---------- diálogo de tarefa ---------- */
@@ -416,21 +429,21 @@ function openTask(id){
   const t=S.tasks.find(x=>x.id===id)||{id:null,title:'',room:'Cozinha',repeat:'w1',who:'rota',note:'',active:true,date:fmt(today()),weekday:0};
   const rooms=[...new Set([...COMMON,'Quartos',...S.tasks.map(x=>x.room)])];
   const opt=(v,l,sel)=>`<option value="${v}" ${String(sel)===String(v)?'selected':''}>${esc(l)}</option>`;
-  $dlg.innerHTML=`<form method="dialog" id="tf"><h2 style="margin-top:0">${id?'Editar':'Nova'} tarefa</h2>
-   <div class="f"><label>Tarefa</label><input type="text" name="title" required maxlength="120" value="${esc(t.title)}"></div>
-   <div class="f"><label>Divisão / categoria</label><input type="text" name="room" list="rl" required maxlength="40" value="${esc(t.room)}"><datalist id="rl">${rooms.map(r=>`<option value="${esc(r)}">`).join('')}</datalist></div>
-   <div class="f"><label>Responsável</label><select name="who">${opt('rota','Rotação da divisão (só Cozinha, Sala, Casa de banho)',t.who)}${opt('quartos','Ocupantes do quarto (mensal)',t.who)}${opt('todos','Todos',t.who)}${opt('rodar','Rotativo (muda de pessoa todas as semanas)',t.who)}${S.people.map((n,i)=>opt(i,n,t.who)).join('')}</select></div>
-   <div class="f"><label>Frequência</label><select name="repeat">${Object.entries(REPEAT).map(([k,v])=>opt(k,v,t.repeat)).join('')}</select></div>
-   <div class="f" data-for="once"><label>Data</label><input type="date" name="date" value="${t.date||fmt(today())}"></div>
-   <div class="f" data-for="wday"><label>Dia da semana</label><select name="weekday">${DAYS_LONG.map((d,i)=>opt(i,d,t.weekday||0)).join('')}</select></div>
-   <div class="f"><label>Nota (opcional)</label><textarea name="note" rows="2" maxlength="200">${esc(t.note)}</textarea></div>
-   <div class="row" style="justify-content:flex-end">${id?'<button type="button" class="btn danger" data-act="delTask" data-id="'+id+'">Apagar</button><button type="button" class="btn" data-act="dupTask" data-id="'+id+'" style="margin-right:auto">Duplicar</button>':''}
-   <button type="button" class="btn" data-act="closeDlg">Cancelar</button><button class="btn pri" value="ok">Guardar</button></div></form>`;
+  $dlg.innerHTML=`<form method="dialog" id="tf"><h2 style="margin-top:0">${T(id?'dlg.editar':'dlg.nova')}</h2>
+   <div class="f"><label>${T('dlg.tarefa')}</label><input type="text" name="title" required maxlength="120" value="${esc(t.title)}"></div>
+   <div class="f"><label>${T('dlg.divisao')}</label><input type="text" name="room" list="rl" required maxlength="40" value="${esc(t.room)}"><datalist id="rl">${rooms.map(r=>`<option value="${esc(r)}">`).join('')}</datalist></div>
+   <div class="f"><label>${T('dlg.responsavel')}</label><select name="who">${opt('rota',TP('dlg.optRota'),t.who)}${opt('quartos',TP('dlg.optQuartos'),t.who)}${opt('todos',TP('dlg.optTodos'),t.who)}${opt('rodar',TP('dlg.optRodar'),t.who)}${S.people.map((n,i)=>opt(i,n,t.who)).join('')}</select></div>
+   <div class="f"><label>${T('dlg.frequencia')}</label><select name="repeat">${REPEATS.map(k=>opt(k,TP('freq.'+k),t.repeat)).join('')}</select></div>
+   <div class="f" data-for="once"><label>${T('dlg.data')}</label><input type="date" name="date" value="${t.date||fmt(today())}"></div>
+   <div class="f" data-for="wday"><label>${T('dlg.diaSemana')}</label><select name="weekday">${[0,1,2,3,4,5,6].map(i=>opt(i,dL(i),t.weekday||0)).join('')}</select></div>
+   <div class="f"><label>${T('dlg.nota')}</label><textarea name="note" rows="2" maxlength="200">${esc(t.note)}</textarea></div>
+   <div class="row" style="justify-content:flex-end">${id?'<button type="button" class="btn danger" data-act="delTask" data-id="'+id+'">'+T('dlg.apagar')+'</button><button type="button" class="btn" data-act="dupTask" data-id="'+id+'" style="margin-right:auto">'+T('dlg.duplicar')+'</button>':''}
+   <button type="button" class="btn" data-act="closeDlg">${T('dlg.cancelar')}</button><button class="btn pri" value="ok">${T('dlg.guardar')}</button></div></form>`;
   const f=$dlg.querySelector('form'),sync=()=>{const r=f.repeat.value;f.querySelector('[data-for=once]').hidden=r!=='once';f.querySelector('[data-for=wday]').hidden=r!=='wday'};
   f.repeat.onchange=sync;sync();
   f.onsubmit=e=>{e.preventDefault();
     let w=f.who.value;if(!['rota','quartos','todos','rodar'].includes(w))w=Number(w);
-    if(w==='rota'&&!COMMON.includes(f.room.value.trim())){alert('A «Rotação da divisão» só existe para Cozinha, Sala e Casa de banho. Escolhe uma pessoa ou «Todos».');return}
+    if(w==='rota'&&!COMMON.includes(f.room.value.trim())){alert(TP('dlg.erroRota'));return}
     const nt={...t,title:f.title.value.trim(),room:f.room.value.trim(),who:w,repeat:f.repeat.value,note:f.note.value.trim(),date:f.date.value,weekday:Number(f.weekday.value)};
     if(!nt.title)return;
     if(nt.id){S.tasks=S.tasks.map(x=>x.id===nt.id?nt:x)}else{nt.id=uid();S.tasks.push(nt)}
@@ -440,24 +453,25 @@ function openTask(id){
 
 /* ---------- render / eventos ---------- */
 const $dlg=document.getElementById('dlg'),$main=document.getElementById('main');
-const TABS=[['hoje','☀️','Hoje',viewHoje],['semana','📅','Semana',viewSemana],['rot','🔄','Rotações',viewRot],['tarefas','📝','Tarefas',viewTarefas],['mais','⚙️','Definições',viewMais]];
+const TABS=[['hoje',viewHoje],['semana',viewSemana],['rot',viewRot],['tarefas',viewTarefas],['mais',viewMais]];
 let desfazer=null,toastT=null;
-function toast(msg,undo){const t=document.getElementById('toast');desfazer=undo||null;t.innerHTML=`<span>${esc(msg)}</span>${undo?'<button data-act="undo">Desfazer</button>':''}`;t.className='on';clearTimeout(toastT);toastT=setTimeout(()=>{t.className='';desfazer=null},8000)}
+function toast(msg,undo){const t=document.getElementById('toast');desfazer=undo||null;t.innerHTML=`<span>${esc(msg)}</span>${undo?`<button data-act="undo">${T('toast.desfazer')}</button>`:''}`;t.className='on';clearTimeout(toastT);toastT=setTimeout(()=>{t.className='';desfazer=null},8000)}
 async function procurarAtualizacao(){
   try{if('serviceWorker'in navigator){for(const r of await navigator.serviceWorker.getRegistrations())await r.unregister()}
     if(window.caches){for(const k of await caches.keys())await caches.delete(k)}}catch(e){}
   location.reload();
 }
 function textoSinc(){
-  if(!comRede())return 'Modo local: sem servidor, as alterações ficam só neste aparelho.';
-  if(fila.length)return fila.length+(fila.length===1?' alteração por enviar':' alterações por enviar')+(semRede?' — sem ligação, seguem quando voltar.':'.');
-  if(semRede)return 'Sem ligação ao servidor. A app funciona com o que tem.';
-  return ultimaSync?'Sincronizado '+haQuanto(ultimaSync)+' ✨':'Ainda não sincronizou.';
+  if(!comRede())return TP('sinc.local');
+  if(fila.length)return (fila.length===1?TP('sinc.fila1'):TP('sinc.filaN',{n:fila.length}))+(semRede?TP('sinc.semRedeFila'):'.');
+  if(semRede)return TP('sinc.semRede');
+  return ultimaSync?TP('sinc.ok',{quando:haQuanto(ultimaSync)}):TP('sinc.nunca');
 }
 function render(){
-  document.getElementById('tabs').innerHTML=TABS.map(([k,i,l])=>`<button data-act="tab" data-t="${k}" ${ui.tab===k?'aria-current="page"':''}><span class="i">${i}</span>${l}</button>`).join('');
+  aplicarTitulo();
+  document.getElementById('tabs').innerHTML=TABS.map(([k])=>`<button data-act="tab" data-t="${k}" ${ui.tab===k?'aria-current="page"':''}><span class="i">${T('nav.'+k+'.i')}</span>${T('nav.'+k)}</button>`).join('');
   document.getElementById('sub').innerHTML=(ui.tab==='hoje'||ui.tab==='semana')?filterChips():'';
-  const v=TABS.find(t=>t[0]===ui.tab)[3];
+  const v=TABS.find(t=>t[0]===ui.tab)[1];
   const y=window.scrollY;$main.innerHTML=v();window.scrollTo(0,y);
 }
 document.addEventListener('click',e=>{
@@ -474,17 +488,17 @@ document.addEventListener('click',e=>{
   else if(a==='sincNow'){versaoSrv=-1;sincronizar().then(()=>setTimeout(()=>{if(ui.tab==='mais')renderSeguro()},400))}
   else if(a==='atualizar')procurarAtualizacao();
   else if(a==='undo'){const f=desfazer;desfazer=null;document.getElementById('toast').className='';if(f)f()}
-  else if(a==='restaurar'){const faltam=defaultTasks().filter(d=>!S.tasks.some(t=>t.title===d.title&&t.room===d.room));faltam.forEach(t=>{S.tasks.push(t);op({op:'tarefa',tarefa:t})});save();render();toast(faltam.length?faltam.length+(faltam.length===1?' tarefa original de volta 🎩':' tarefas originais de volta 🎩'):'Já tens todas as originais. Nada a restaurar! 🙌')}
-  else if(a==='dupTask'){const t=S.tasks.find(x=>x.id===b.dataset.id);if(t){const c={...t,id:uid(),title:(t.title+' (cópia)').slice(0,120)};S.tasks.push(c);save();$dlg.close();render();op({op:'tarefa',tarefa:c});toast('Tarefa duplicada — agora há duas 👯')}}
+  else if(a==='restaurar'){const faltam=defaultTasks().filter(d=>!S.tasks.some(t=>t.title===d.title&&t.room===d.room));faltam.forEach(t=>{S.tasks.push(t);op({op:'tarefa',tarefa:t})});save();render();toast(faltam.length?(faltam.length===1?TP('toast.restauradas1'):TP('toast.restaurasN',{n:faltam.length})):TP('toast.nadaRestaurar'))}
+  else if(a==='dupTask'){const t=S.tasks.find(x=>x.id===b.dataset.id);if(t){const c={...t,id:uid(),title:(t.title+TP('dlg.copia')).slice(0,120)};S.tasks.push(c);save();$dlg.close();render();op({op:'tarefa',tarefa:c});toast(TP('toast.duplicada'))}}
   else if(a==='new')openTask(null);
   else if(a==='edit')openTask(b.dataset.id);
   else if(a==='closeDlg')$dlg.close();
   else if(a==='toggleActive'){const t=S.tasks.find(x=>x.id===b.dataset.id);t.active=!t.active;save();render();op({op:'tarefa',tarefa:t})}
-  else if(a==='delTask'){if(b.dataset.arm){const t0=S.tasks.find(x=>x.id===b.dataset.id);S.tasks=S.tasks.filter(x=>x.id!==b.dataset.id);save();$dlg.close();render();op({op:'tarefa-apagar',tid:b.dataset.id});toast('Tarefa apagada — adeus, até nunca 👋',()=>{S.tasks.push(t0);save();render();op({op:'tarefa',tarefa:t0})})}else{b.dataset.arm=1;b.textContent='Confirmar apagar'}}
+  else if(a==='delTask'){if(b.dataset.arm){const t0=S.tasks.find(x=>x.id===b.dataset.id);S.tasks=S.tasks.filter(x=>x.id!==b.dataset.id);save();$dlg.close();render();op({op:'tarefa-apagar',tid:b.dataset.id});toast(TP('toast.apagada'),()=>{S.tasks.push(t0);save();render();op({op:'tarefa',tarefa:t0})})}else{b.dataset.arm=1;b.textContent=TP('dlg.confirmarApagar')}}
   else if(a==='export'){const blob=new Blob([JSON.stringify(S,null,1)],{type:'application/json'});const u=URL.createObjectURL(blob);const l=document.createElement('a');l.href=u;l.download='tarefas-porto.json';l.click();setTimeout(()=>URL.revokeObjectURL(u),2000)}
   else if(a==='import')document.getElementById('file').click();
-  else if(a==='clearDone'){if(b.dataset.arm){const prev={...S.done};S.done={};save();render();op({op:'limpar'});toast('Marcações limpas — folha em branco ✨',()=>{S.done=prev;save();render();op({op:'substituir',estado:estadoLocal()})})}else{b.dataset.arm=1;b.textContent='Confirmar?'}}
-  else if(a==='reset'){if(b.dataset.arm){const p=S.people,prev=JSON.parse(JSON.stringify(estadoLocal()));S=freshState();S.people=p;save();render();op({op:'substituir',estado:estadoLocal()});toast('Tudo reposto — como se nada fosse 🧼',()=>{CAMPOS.forEach(c=>{S[c]=prev[c]});save();render();op({op:'substituir',estado:estadoLocal()})})}else{b.dataset.arm=1;b.textContent='Apagar tudo? Clica de novo'}}
+  else if(a==='clearDone'){if(b.dataset.arm){const prev={...S.done};S.done={};save();render();op({op:'limpar'});toast(TP('toast.limpas'),()=>{S.done=prev;save();render();op({op:'substituir',estado:estadoLocal()})})}else{b.dataset.arm=1;b.textContent=TP('mais.confirmarLimpar')}}
+  else if(a==='reset'){if(b.dataset.arm){const p=S.people,prev=JSON.parse(JSON.stringify(estadoLocal()));S=freshState();S.people=p;save();render();op({op:'substituir',estado:estadoLocal()});toast(TP('toast.repostas'),()=>{CAMPOS.forEach(c=>{S[c]=prev[c]});save();render();op({op:'substituir',estado:estadoLocal()})})}else{b.dataset.arm=1;b.textContent=TP('mais.confirmarRepor')}}
 });
 document.addEventListener('input',e=>{if(e.target.dataset&&e.target.dataset.act==='q'){ui.q=e.target.value;const l=document.getElementById('lista');if(l)l.innerHTML=listaHtml()}});
 $dlg.addEventListener('click',e=>{const r=$dlg.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)$dlg.close()});
@@ -500,7 +514,7 @@ document.addEventListener('change',e=>{
 document.getElementById('file').addEventListener('change',async e=>{
   const f=e.target.files[0];if(!f)return;
   try{const j=JSON.parse(await f.text());if(!Array.isArray(j.tasks)||!Array.isArray(j.people))throw 0;S={...freshState(),...j};save();render();op({op:'substituir',estado:estadoLocal()})}
-  catch(_){alert('Ficheiro inválido.')}
+  catch(_){alert(TP('mais.ficheiroInvalido'))}
   e.target.value='';
 });
 /* ---------- só funciona instalada no ecrã principal (telemóvel) ---------- */
@@ -513,14 +527,13 @@ window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();pedidoInsta
 let bloqueado=MOVEL&&!INSTALADA&&!LOCAL;
 function mostrarGate(){
   const g=document.getElementById('gate');
-  const passos=IOS
-    ?['Toca no botão <b>Partilhar</b> (o quadrado com a seta para cima) na barra do Safari.','Desce e escolhe <b>Adicionar ao Ecrã Principal</b>, e depois <b>Adicionar</b>.','Fecha o Safari e abre a app <b>Tarefas</b> pelo ícone que apareceu no ecrã principal.']
-    :['Abre o menu do Chrome (os três pontos ⋮).','Escolhe <b>Instalar app</b> (ou <b>Adicionar ao ecrã principal</b>).','Abre a app <b>Tarefas</b> pelo ícone que apareceu no ecrã principal.'];
-  g.innerHTML=`<div class="box"><img src="/icon-192.png" alt=""><h1>Instala a app para continuar</h1>
-    <p class="lead">A Tarefas Porto só funciona depois de adicionada ao ecrã principal.</p>
-    ${pedidoInstalar?'<button class="btn pri" id="instalar">Instalar agora</button>':''}
+  const vv={nomeCurto:TP('app.nomeCurto')};
+  const passos=[1,2,3].map(n=>T((IOS?'gate.ios':'gate.and')+n,vv));
+  g.innerHTML=`<div class="box"><img src="/icon-192.png" alt=""><h1>${T('gate.titulo')}</h1>
+    <p class="lead">${T('gate.lead',{app:TP('app.nome')})}</p>
+    ${pedidoInstalar?`<button class="btn pri" id="instalar">${T('gate.instalarAgora')}</button>`:''}
     <ol>${passos.map(x=>`<li><span>${x}</span></li>`).join('')}</ol>
-    ${IOS?'<p class="muted" style="margin-top:14px">Se estiveres noutro browser que não o Safari, abre este endereço no Safari.</p>':''}</div>`;
+    ${IOS?`<p class="muted" style="margin-top:14px">${T('gate.iosNota')}</p>`:''}</div>`;
   g.hidden=false;document.querySelector('.app').hidden=true;
   const bt=document.getElementById('instalar');
   if(bt)bt.onclick=async()=>{try{pedidoInstalar.prompt();await pedidoInstalar.userChoice}catch(e){}pedidoInstalar=null;mostrarGate()};
@@ -534,7 +547,7 @@ async function hello(){
   const id=idAparelho();if(!id||!/^https?:$/.test(location.protocol)||bloqueado)return;
   ultimoHello=Date.now();
   try{const r=await fetch('/api/hello',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,pessoa:ui.filter>=0?S.people[ui.filter]:null,instalada:INSTALADA})});
-    if(!r.ok)return;const j=await r.json();aplicarPessoas(j.pessoas);aplicarEstado(j.status)}catch(e){/* sem rede: a app continua a funcionar */}
+    if(!r.ok)return;const j=await r.json();aplicarPessoas(j.pessoas);if(j.tv!==undefined&&j.tv!==tvSrv)carregarTextos();aplicarEstado(j.status)}catch(e){/* sem rede: a app continua a funcionar */}
 }
 // Os nomes das pessoas são do servidor: mudar num aparelho muda em todos.
 function aplicarPessoas(p){
@@ -552,9 +565,9 @@ function aplicarEstado(st){
   clearInterval(pollHello);
   if(st==='ativo'){g.hidden=true;document.querySelector('.app').hidden=false;render();sincronizar();return}
   const pend=st==='pendente';
-  g.innerHTML=`<div class="box"><img src="/icon-192.png" alt=""><h1>${pend?'À espera de aprovação':'Acesso bloqueado'}</h1>
-    <p class="lead">${pend?'O administrador ainda tem de aprovar este aparelho. Esta página atualiza sozinha.':'Este aparelho não tem acesso. Se achas que é engano, fala com o administrador.'}</p>
-    <button class="btn pri" id="verificar">Verificar agora</button></div>`;
+  g.innerHTML=`<div class="box"><img src="/icon-192.png" alt=""><h1>${T(pend?'acesso.pendenteT':'acesso.bloqueadoT')}</h1>
+    <p class="lead">${T(pend?'acesso.pendenteTxt':'acesso.bloqueadoTxt')}</p>
+    <button class="btn pri" id="verificar">${T('acesso.verificar')}</button></div>`;
   g.hidden=false;document.querySelector('.app').hidden=true;
   document.getElementById('verificar').onclick=hello;
   pollHello=setInterval(hello,30000);
@@ -612,6 +625,7 @@ async function sincronizar(){
     if(!r.ok)return;
     const j=await r.json();
     aplicarPessoas(j.pessoas);
+    if(j.tv!==undefined&&j.tv!==tvSrv)carregarTextos();
     if(fila.length||aEnviar)return;
     ultimaSync=Date.now();
     if(j.estado===null){ // servidor vazio: este aparelho lança o estado

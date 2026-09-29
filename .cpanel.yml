@@ -2,6 +2,6 @@
 deployment:
   tasks:
     - export DEPLOYPATH=/home/carpetep/porto/
-    - /bin/cp index.html admin.html app.js package.json manifest.webmanifest sw.js icon-180.png icon-192.png icon-512.png $DEPLOYPATH
+    - /bin/cp index.html admin.html textos.js app.js package.json manifest.webmanifest sw.js icon-180.png icon-192.png icon-512.png $DEPLOYPATH
     - /bin/mkdir -p ${DEPLOYPATH}tmp
     - /bin/touch ${DEPLOYPATH}tmp/restart.txt

@@ -10,6 +10,7 @@
 :root{--bg:#f6f7fb;--card:#fff;--ink:#1c1d2b;--mute:#6b6f85;--line:#e4e6f0;--pri:#4f46e5;--pri-ink:#fff;--ok:#16a34a;--warn:#d97706;--bad:#dc2626;--chip:#eef0f8;color-scheme:light}
 @media(prefers-color-scheme:dark){:root{--bg:#0f1017;--card:#181a25;--ink:#eceef7;--mute:#9297b0;--line:#2a2d3d;--pri:#818cf8;--pri-ink:#0f1017;--chip:#232636;color-scheme:dark}}
 *{box-sizing:border-box}
+[hidden]{display:none!important}
 body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
 button,input{font:inherit;color:inherit}
 .wrap{max-width:1000px;margin:0 auto;padding:calc(env(safe-area-inset-top,0px) + 16px) 16px calc(env(safe-area-inset-bottom,0px) + 40px)}
@@ -47,6 +48,23 @@ input[type=text],input[type=password],input[type=search]{border:1px solid var(--
 .sw input:checked{background:var(--ok)}.sw input:checked::after{transform:translateX(20px)}
 #login{max-width:360px;margin:18vh auto 0}
 .err{color:var(--bad);min-height:1.4em;margin:8px 0 0;font-size:14px}
+
+.seg{display:flex;background:var(--chip);border-radius:12px;padding:4px;gap:4px;margin-bottom:12px}
+.seg button{flex:1;border:0;background:none;border-radius:9px;padding:9px 6px;cursor:pointer;color:var(--mute);font-weight:600;min-height:40px}
+.seg button[aria-selected=true]{background:var(--card);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.15)}
+details.grp{border:1px solid var(--line);border-radius:12px;margin-bottom:10px;background:var(--card)}
+details.grp>summary{cursor:pointer;padding:12px 14px;font-weight:600;list-style:none;display:flex;gap:8px;align-items:center}
+details.grp>summary::-webkit-details-marker{display:none}
+details.grp>summary .n{margin-left:auto;font-weight:400;color:var(--mute);font-size:13px}
+.tx{padding:10px 14px;border-top:1px solid var(--line)}
+.tx label{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;font-size:13.5px;margin-bottom:4px}
+.tx code{font-size:11.5px;color:var(--mute);background:var(--chip);border-radius:6px;padding:1px 6px}
+.tx textarea,.tx input{width:100%;border:1px solid var(--line);background:var(--card);border-radius:10px;padding:9px 11px;font:inherit;color:inherit;min-height:42px}
+.tx textarea{resize:vertical}
+.tx.mod{border-left:3px solid var(--pri)}
+.tx .hint{font-size:12px;color:var(--mute);margin-top:3px}
+.tx .rep{margin-top:6px}
+#barra{position:sticky;bottom:calc(env(safe-area-inset-bottom,0px) + 10px);background:var(--card);border:1px solid var(--pri);border-radius:14px;padding:10px 14px;display:flex;gap:10px;align-items:center;margin-top:12px;box-shadow:0 6px 24px rgba(0,0,0,.18)}
 </style>
 </head>
 <body>
@@ -58,6 +76,8 @@ input[type=text],input[type=password],input[type=search]{border:1px solid var(--
   </div>
   <div id="painel" hidden>
     <div class="top"><h1 class="grow">Aparelhos</h1><span class="muted" id="upd"></span><a class="btn sm" href="/api/admin/backup" download style="text-decoration:none;display:inline-flex;align-items:center">Exportar</a><button class="btn sm" id="atualizar">Atualizar</button><button class="btn sm" id="sair">Sair</button></div>
+    <div class="seg" id="abas" role="tablist"><button role="tab" data-v="aparelhos" aria-selected="true">Aparelhos</button><button role="tab" data-v="textos" aria-selected="false">Textos</button></div>
+    <div id="v-aparelhos">
     <div class="tiles" id="tiles"></div>
     <div class="card"><label class="sw"><input type="checkbox" id="aprov"><span><b>Exigir aprovação de aparelhos novos</b><br><span class="muted">Desligado: entram logo. Ligado: ficam «pendentes» até os aprovares. Os que já existem não são afetados.</span></span></label></div>
     <div class="card"><b>Nomes das pessoas</b><p class="muted" style="margin:2px 0 10px">Mudam para todos os aparelhos.</p>
@@ -68,6 +88,14 @@ input[type=text],input[type=password],input[type=search]{border:1px solid var(--
       <div id="lista"></div>
     </div>
     <div class="card"><b>Atividade recente</b><div id="ativ" style="margin-top:6px"></div></div>
+    </div>
+    <div id="v-textos" hidden>
+      <div class="card"><b>Textos da app</b><p class="muted" style="margin:2px 0 10px">Todos os textos que as pessoas veem (e as frases do feed de atividade). Mudam em todos os aparelhos em poucos segundos. Usa <code>**assim**</code> para negrito e mantém as variáveis entre chavetas, como <code>{nome}</code>. Nos textos com várias alternativas, escreve uma por linha: a app sorteia.</p>
+        <input type="search" id="tq" placeholder="Procurar texto ou chave…">
+        <div class="row" style="margin-top:10px"><span class="muted" id="tinfo"></span><span class="grow"></span><button class="btn sm bad" id="treporTudo">Repor todos os textos</button></div></div>
+      <div id="tgrupos"></div>
+      <div id="barra" hidden><b id="bn"></b><span class="grow"></span><button class="btn" id="bdesc">Descartar</button><button class="btn pri" id="bsalvar">Guardar</button></div>
+    </div>
   </div>
 </div>
 <script>
@@ -129,6 +157,65 @@ document.addEventListener('click',async e=>{
     await api('/api/admin/aparelho',{id,acao,valor});await carregar();
   }catch(err){alert(err.message)}
 });
+/* ---------- separadores + textos ---------- */
+let TX=null,pend={},abaAtual='aparelhos';
+const eq=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
+function mostrarAba(v){abaAtual=v;document.querySelectorAll('#abas button').forEach(b=>b.setAttribute('aria-selected',String(b.dataset.v===v)));$('#v-aparelhos').hidden=v!=='aparelhos';$('#v-textos').hidden=v!=='textos';if(v==='textos'&&!TX)carregarTextos()}
+$('#abas').onclick=e=>{const b=e.target.closest('[data-v]');if(b)mostrarAba(b.dataset.v)};
+const guardado=d=>TX.textos[d.k]!==undefined?TX.textos[d.k]:d.v;
+const atual=d=>pend[d.k]!==undefined?pend[d.k]:guardado(d);
+const paraCampo=v=>Array.isArray(v)?v.join('\n'):v;
+const deCampo=(d,t)=>d.lista?t.split('\n').map(x=>x.trim()).filter(Boolean):t;
+async function carregarTextos(){
+  try{TX=await api('/api/admin/textos');pend={};desenharTextos()}catch(e){if(e.message!=='sessao')alert(e.message)}
+}
+function desenharTextos(){
+  const grupos=TX.grupos.map(g=>{
+    const L=TX.def.filter(d=>d.g===g);
+    return `<details class="grp" data-g="${esc(g)}"><summary>${esc(g)}<span class="n" data-n></span></summary>${L.map(d=>{
+      const v=paraCampo(atual(d)),longo=d.lista||v.length>70||v.includes('\n');
+      const campo=longo?`<textarea data-k="${esc(d.k)}" rows="${d.lista?Math.min(8,Math.max(3,(Array.isArray(atual(d))?atual(d).length:1)+1)):3}" maxlength="${d.lista?4000:600}">${esc(v)}</textarea>`:`<input type="text" data-k="${esc(d.k)}" maxlength="600" value="${esc(v)}">`;
+      return `<div class="tx" data-row="${esc(d.k)}" data-s="${esc((d.r+' '+d.k+' '+paraCampo(d.v)).toLowerCase())}"><label>${esc(d.r)} <code>${esc(d.k)}</code></label>${campo}${d.vars?`<div class="hint">Variáveis: ${esc(d.vars)}${d.lista?' · uma alternativa por linha':''}</div>`:(d.lista?'<div class="hint">Uma alternativa por linha (a app sorteia).</div>':'')}<button class="btn sm rep" data-rep="${esc(d.k)}" hidden>Repor original</button></div>`}).join('')}</details>`}).join('');
+  $('#tgrupos').innerHTML=grupos;
+  TX.def.forEach(atualizarLinha);contarTextos();filtrarTextos();
+  const g1=document.querySelector('details.grp');if(g1&&!$('#tq').value)g1.open=true;
+}
+function atualizarLinha(d){
+  const row=document.querySelector(`[data-row="${CSS.escape(d.k)}"]`);if(!row)return;
+  const mod=!eq(atual(d),d.v);row.classList.toggle('mod',mod);row.querySelector('[data-rep]').hidden=!mod;
+}
+function contarTextos(){
+  const n=Object.keys(pend).filter(k=>!eq(pend[k],guardado(TX.def.find(d=>d.k===k)))).length;
+  $('#barra').hidden=!n;$('#bn').textContent=n+(n===1?' alteração por guardar':' alterações por guardar');
+  const mods=TX.def.filter(d=>!eq(guardado(d),d.v)).length;
+  $('#tinfo').textContent=TX.def.length+' textos · '+mods+' personalizado'+(mods===1?'':'s');
+  document.querySelectorAll('details.grp').forEach(g=>{const c=TX.def.filter(d=>d.g===g.dataset.g&&!eq(atual(d),d.v)).length;g.querySelector('[data-n]').textContent=c?c+' personalizado'+(c===1?'':'s'):''});
+}
+function filtrarTextos(){
+  const q=$('#tq').value.trim().toLowerCase();
+  document.querySelectorAll('details.grp').forEach(g=>{let vis=0;g.querySelectorAll('.tx').forEach(r=>{const ok=!q||r.dataset.s.includes(q);r.hidden=!ok;if(ok)vis++});g.hidden=!vis;if(q)g.open=true});
+}
+$('#tq').oninput=filtrarTextos;
+$('#tgrupos').addEventListener('input',e=>{
+  const k=e.target.dataset.k;if(!k)return;const d=TX.def.find(x=>x.k===k);
+  pend[k]=deCampo(d,e.target.value);atualizarLinha(d);contarTextos();
+});
+$('#tgrupos').addEventListener('click',e=>{
+  const k=e.target.dataset.rep;if(!k)return;const d=TX.def.find(x=>x.k===k);
+  pend[k]=d.v;const c=document.querySelector(`[data-k="${CSS.escape(k)}"]`);c.value=paraCampo(d.v);atualizarLinha(d);contarTextos();
+});
+$('#bdesc').onclick=()=>{pend={};desenharTextos()};
+$('#bsalvar').onclick=async()=>{
+  const alt={};for(const [k,v] of Object.entries(pend)){const d=TX.def.find(x=>x.k===k);if(!eq(v,guardado(d)))alt[k]=eq(v,d.v)?null:v}
+  try{$('#bsalvar').disabled=true;await api('/api/admin/textos',{alteracoes:alt});await carregarTextos()}catch(e){alert(e.message)}finally{$('#bsalvar').disabled=false}
+};
+let armadoTudo=false;
+$('#treporTudo').onclick=async()=>{
+  if(!armadoTudo){armadoTudo=true;$('#treporTudo').textContent='Confirmar: repor TODOS os textos';setTimeout(()=>{armadoTudo=false;$('#treporTudo').textContent='Repor todos os textos'},5000);return}
+  armadoTudo=false;$('#treporTudo').textContent='Repor todos os textos';
+  try{await api('/api/admin/textos',{repor:'tudo'});await carregarTextos()}catch(e){alert(e.message)}
+};
+window.addEventListener('beforeunload',e=>{if(Object.keys(pend).length&&TX&&!$('#barra').hidden){e.preventDefault();e.returnValue=''}});
 carregar().then(()=>{if(!$('#painel').hidden)timer=setInterval(carregar,20000)});
 </script>
 </body>

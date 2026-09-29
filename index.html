@@ -40,7 +40,11 @@ nav.tabs button[aria-current=page]{color:var(--pri);background:var(--chip);font-
 .bar{height:8px;background:var(--chip);border-radius:99px;overflow:hidden}
 .bar>i{display:block;height:100%;background:var(--ok);border-radius:99px;transition:width .25s}
 .grid3{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(270px,1fr))}
-.item{display:flex;align-items:flex-start;gap:10px;padding:9px 0;border-top:1px solid var(--line)}
+.item{display:flex;align-items:flex-start;flex-wrap:wrap;gap:10px;padding:9px 0;border-top:1px solid var(--line)}
+.item label{flex:1 1 0}
+.ph{width:26px;flex:none}
+.cnt{border:1px solid var(--line);background:var(--chip);color:var(--mute);border-radius:99px;padding:4px 11px;min-height:32px;font-size:13px;cursor:pointer;flex:none;align-self:center}
+.cnt[aria-expanded=true]{color:var(--ink);border-color:var(--pri)}
 .item:first-of-type{border-top:0}
 .item input[type=checkbox],label.row input[type=checkbox]{appearance:none;-webkit-appearance:none;width:26px;height:26px;margin:0;flex:none;border:2px solid var(--mute);border-radius:8px;background:var(--card);cursor:pointer;display:grid;place-content:center;transition:background .15s,border-color .15s}
 .item input[type=checkbox]::after,label.row input[type=checkbox]::after{content:"";width:12px;height:7px;border:solid #fff;border-width:0 0 3px 3px;transform:rotate(-45deg) translate(1px,-1px) scale(0);transition:transform .12s}
@@ -51,8 +55,8 @@ nav.tabs button[aria-current=page]{color:var(--pri);background:var(--chip);font-
 .item.done .t{text-decoration:line-through;color:var(--mute)}
 .t{display:block}.s{display:block;color:var(--mute);font-size:12.5px}
 .tag{display:inline-block;font-size:11.5px;padding:1px 8px;border-radius:99px;background:var(--chip);color:var(--mute);margin-left:4px}
-.days{display:flex;gap:4px;margin-top:5px;flex-wrap:wrap}
-.days button{width:34px;height:30px;border-radius:8px;border:1px solid var(--line);background:var(--chip);font-size:12px;cursor:pointer;color:var(--mute)}
+.days{display:flex;gap:6px;flex-basis:100%;margin:0 0 4px 36px;flex-wrap:wrap}
+.days button{width:34px;height:34px;border-radius:50%;border:1px solid var(--line);background:var(--chip);font-size:13px;font-weight:600;cursor:pointer;color:var(--mute);padding:0}
 .days button.on{background:var(--ok);border-color:var(--ok);color:#fff}
 .days button.today{outline:2px solid var(--pri);outline-offset:1px}
 .days button.off{opacity:.4;cursor:default}
@@ -145,7 +149,7 @@ let S;
 try{S=JSON.parse(localStorage.getItem(KEY)||'null')}catch(e){S=null}
 if(!S||!Array.isArray(S.tasks))S=freshState();
 const save=()=>{try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}};
-const ui={tab:'hoje',week:mondayOf(today()),filter:-1,open:{}};
+const ui={tab:'hoje',week:mondayOf(today()),filter:-1,open:{},dayOpen:{}};
 const PCOL=i=>`var(--p${i%3})`;
 const who=i=>S.people[i]??'?';
 
@@ -213,9 +217,8 @@ function itemRow(o,{showPerson=false,showDay=false}={}){
   if(showPerson)tags.push(`<span class="tag"><span class="dot" style="background:${PCOL(o.p)}"></span>${esc(who(o.p))}</span>`);
   if(o.t.room&&!o.trash)tags.push(`<span class="tag">${esc(o.t.room)}</span>`);
   if(o.optional)tags.push('<span class="tag">se necessário</span>');
-  if(o.kind==='week'&&o.t.repeat==='w2')tags.push(`<span class="tag">${o.slot+1}/2 esta semana</span>`);
+  if(o.kind==='week'&&o.t.repeat==='w2')tags.push(`<span class="tag">${o.slot+1}/2</span>`);
   if(showDay&&o.date)tags.push(`<span class="tag">${DAYS[dow(o.date)]} ${dm(o.date)}</span>`);
-  if(!o.date&&showDay&&o.t.repeat!=='w2')tags.push('<span class="tag">esta semana</span>');
   const sub=[o.sub,o.t.note].filter(Boolean).join(' · ');
   return `<div class="item ${d?'done':''}"><input type="checkbox" id="c${esc(o.key)}" data-act="toggle" data-k="${esc(o.key)}" ${d?'checked':''}>
    <label for="c${esc(o.key)}"><span class="t">${o.trash?'🗑️ ':''}${esc(o.t.title)}${tags.join('')}</span>${sub?`<span class="s">${esc(sub)}</span>`:''}</label></div>`;
@@ -258,9 +261,12 @@ function viewSemana(){
     const mine=occ.filter(o=>o.p===p),pr=progress(mine);
     const daily=mine.filter(o=>o.kind==='day'&&o.t.repeat==='daily');
     const groups=[...new Set(daily.map(o=>o.t.id))].map(id=>{
-      const os=daily.filter(o=>o.t.id===id),t=os[0].t;
-      return `<div class="item" style="display:block"><span class="t">${esc(t.title)}<span class="tag">${esc(t.room)}</span></span>${os[0].sub?`<span class="s">${esc(os[0].sub)}</span>`:''}
-        <div class="days">${os.map(o=>{const isT=fmt(o.date)===fmt(now);return `<button class="${isDone(o)?'on':''} ${isT?'today':''}" data-act="toggle" data-k="${esc(o.key)}" aria-pressed="${isDone(o)}" aria-label="${DAYS_LONG[dow(o.date)]}">${DAYS[dow(o.date)]}</button>`}).join('')}</div></div>`}).join('');
+      const os=daily.filter(o=>o.t.id===id),t=os[0].t,dk=id+'|'+p;
+      const td=os.find(o=>fmt(o.date)===fmt(now)),n=os.filter(isDone).length,open=!!ui.dayOpen[dk];
+      const box=td?`<input type="checkbox" id="c${esc(td.key)}" data-act="toggle" data-k="${esc(td.key)}" ${isDone(td)?'checked':''} aria-label="Feito hoje">`:'<span class="ph"></span>';
+      return `<div class="item ${td&&isDone(td)?'done':''}">${box}<label ${td?`for="c${esc(td.key)}"`:''}><span class="t">${esc(t.title)}</span>${os[0].sub?`<span class="s">${esc(os[0].sub)}</span>`:''}</label>
+        <button class="cnt" data-act="days" data-dk="${esc(dk)}" aria-expanded="${open}" aria-label="Ver os dias">${n}/7 <span>${open?'▴':'▾'}</span></button>
+        ${open?`<div class="days">${os.map(o=>`<button class="${isDone(o)?'on':''} ${fmt(o.date)===fmt(now)?'today':''}" data-act="toggle" data-k="${esc(o.key)}" aria-pressed="${isDone(o)}" aria-label="${DAYS_LONG[dow(o.date)]}">${DAYS[dow(o.date)][0]}</button>`).join('')}</div>`:''}</div>`}).join('');
     const rest=mine.filter(o=>!(o.kind==='day'&&o.t.repeat==='daily')).sort((a,b)=>(a.date?dow(a.date):9)-(b.date?dow(b.date):9));
     const roomsOf=COMMON.filter(r=>respRoom(r,mon)===p);
     const open=ui.filter!==-1||(ui.open[p]??wide);
@@ -268,7 +274,7 @@ function viewSemana(){
       <p class="muted" style="margin:8px 0 0">${roomsOf.length?'Responsável por: <b>'+roomsOf.join(', ')+'</b>':'Sem divisão comum'} · ${q.ind===p?'quarto individual':'quarto partilhado'}</p></summary>
       <div class="body">${groups}${rest.map(o=>itemRow(o,{showDay:true})).join('')}${!mine.length?'<div class="empty">Nada atribuído</div>':''}</div></details>`}).join('');
   return `<div class="card row">${weekNav()}<span class="grow"></span></div>
-   <details class="card"><summary><b>Responsáveis da semana</b> <span class="muted">— trocar se for preciso</span></summary><div style="margin-top:8px">${rooms}${trash?'<hr style="border:0;border-top:1px solid var(--line)">'+trash:''}</div></details>
+   <details class="card"><summary><b>Responsáveis da semana</b> <span class="muted">· trocar</span></summary><div style="margin-top:8px">${rooms}${trash?'<hr style="border:0;border-top:1px solid var(--line)">'+trash:''}</div></details>
    <div class="grid3">${cards}</div>`;
 }
 function peopleSelect(k,val,def){
@@ -353,6 +359,7 @@ document.addEventListener('click',e=>{
   else if(a==='filter'){ui.filter=Number(b.dataset.i);render()}
   else if(a==='wk'){const d=Number(b.dataset.d);ui.week=d===0?mondayOf(today()):addDays(ui.week,7*d);render()}
   else if(a==='toggle'){const k=b.dataset.k;if(S.done[k])delete S.done[k];else S.done[k]=1;save();render()}
+  else if(a==='days'){const k=b.dataset.dk;ui.dayOpen[k]=!ui.dayOpen[k];render()}
   else if(a==='new')openTask(null);
   else if(a==='edit')openTask(b.dataset.id);
   else if(a==='closeDlg')$dlg.close();

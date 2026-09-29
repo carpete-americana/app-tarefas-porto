@@ -27,12 +27,14 @@ const FICHEIROS = {
 
 /* ---------- dados ---------- */
 const PESSOAS_BASE = ['Sofia', 'Leonor', 'Francisco'];
-let db = { config: { aprovacao: false }, aparelhos: {}, pessoas: PESSOAS_BASE.slice() };
+let db = { config: { aprovacao: false }, aparelhos: {}, pessoas: PESSOAS_BASE.slice(), estado: null, versao: 0 };
+let estadoCru = null;
 try {
   const j = JSON.parse(fs.readFileSync(FICHEIRO_DADOS, 'utf8'));
   if (j && typeof j === 'object') {
     db = { config: { aprovacao: !!(j.config && j.config.aprovacao) }, aparelhos: j.aparelhos && typeof j.aparelhos === 'object' ? j.aparelhos : {},
-      pessoas: Array.isArray(j.pessoas) && j.pessoas.length === 3 ? j.pessoas.map((n, i) => String(n).slice(0, 20) || PESSOAS_BASE[i]) : PESSOAS_BASE.slice() };
+      pessoas: Array.isArray(j.pessoas) && j.pessoas.length === 3 ? j.pessoas.map((n, i) => String(n).slice(0, 20) || PESSOAS_BASE[i]) : PESSOAS_BASE.slice(), estado: null, versao: Number.isInteger(j.versao) ? j.versao : 0 };
+    estadoCru = j.estado;
   }
 } catch (e) { /* primeira execução */ }
 
@@ -75,10 +77,10 @@ function json(res, codigo, corpo, extra = {}) {
   res.end(JSON.stringify(corpo));
 }
 
-function lerCorpo(req) {
+function lerCorpo(req, max = 4096) {
   return new Promise((resolve, reject) => {
     let tam = 0; const partes = [];
-    req.on('data', (c) => { tam += c.length; if (tam > 4096) { reject(new Error('grande')); req.destroy(); } else partes.push(c); });
+    req.on('data', (c) => { tam += c.length; if (tam > max) { reject(new Error('grande')); req.destroy(); } else partes.push(c); });
     req.on('end', () => { try { resolve(JSON.parse(Buffer.concat(partes).toString('utf8') || '{}')); } catch (e) { reject(e); } });
     req.on('error', reject);
   });
@@ -132,9 +134,92 @@ async function mudarPessoa(req, res) {
   if (!a || a.status !== 'ativo') return json(res, 403, { erro: 'Aparelho sem acesso.' });
   const nome = limpa(b.nome, 20);
   if (!Number.isInteger(b.i) || b.i < 0 || b.i > 2 || !nome) return json(res, 400, { erro: 'Nome inválido.' });
-  db.pessoas[b.i] = nome; gravar();
-  json(res, 200, { pessoas: db.pessoas });
+  db.pessoas[b.i] = nome; db.versao++; gravar();
+  json(res, 200, { pessoas: db.pessoas, versao: db.versao });
 }
+
+/* ---------- API pública: estado partilhado (tarefas, marcações, trocas, definições) ---------- */
+const REPETICOES = ['daily', 'w2', 'w1', 'need', 'wday', 'once'];
+const QUEM = ['rota', 'quartos', 'todos', 0, 1, 2];
+const DATA_ISO = /^\d{4}-\d{2}-\d{2}$/;
+const MES_ISO = /^\d{4}-\d{2}$/;
+
+function tarefaLimpa(t) {
+  if (!t || typeof t !== 'object') return null;
+  const id = typeof t.id === 'string' && /^[A-Za-z0-9_-]{1,40}$/.test(t.id) ? t.id : null;
+  const title = limpa(t.title, 120), room = limpa(t.room, 40);
+  if (!id || !title || !room || !REPETICOES.includes(t.repeat) || !QUEM.includes(t.who)) return null;
+  return {
+    id, title, room, repeat: t.repeat, who: t.who, note: limpa(t.note, 200), active: t.active !== false,
+    date: DATA_ISO.test(t.date || '') ? t.date : '', weekday: Number.isInteger(t.weekday) && t.weekday >= 0 && t.weekday <= 6 ? t.weekday : 0,
+  };
+}
+
+function estadoLimpo(e) {
+  if (!e || typeof e !== 'object' || !Array.isArray(e.tasks) || e.tasks.length > 200) return null;
+  const tasks = e.tasks.map(tarefaLimpa);
+  if (tasks.some((t) => !t) || !DATA_ISO.test(e.anchor || '') || !MES_ISO.test(e.roomsBase || '')) return null;
+  const done = {}; let n = 0;
+  for (const k of Object.keys(e.done && typeof e.done === 'object' ? e.done : {})) {
+    if (k.length > 200) continue;
+    if (++n > 20000) return null;
+    done[k] = 1;
+  }
+  const ov = {};
+  for (const [k, v] of Object.entries(e.ov && typeof e.ov === 'object' ? e.ov : {})) if (k.length <= 100 && Number.isInteger(v) && v >= 0 && v <= 2) ov[k] = v;
+  return { tasks, done, ov, anchor: e.anchor, roomsBase: e.roomsBase, trashOn: e.trashOn !== false };
+}
+
+// As marcações levam a data (ou a segunda-feira da semana) no 2.º segmento; as com mais de 150 dias saem.
+function podarMarcacoes() {
+  const limite = new Date(Date.now() - 150 * 864e5).toISOString().slice(0, 10);
+  for (const k of Object.keys(db.estado.done)) { const d = k.split('|')[1]; if (DATA_ISO.test(d || '') && d < limite) delete db.estado.done[k]; }
+}
+
+async function estadoApi(req, res) {
+  if (excede('estado:' + ipDe(req), 300, 60e3)) return json(res, 429, { erro: 'Demasiados pedidos.' });
+  let b;
+  if (req.method === 'GET') {
+    const q = new URL(req.url, 'http://x').searchParams;
+    b = { id: q.get('id'), v: Number(q.get('v')) };
+  } else {
+    try { b = await lerCorpo(req, 262144); } catch (e) { return json(res, 400, { erro: 'Pedido inválido.' }); }
+  }
+  const a = typeof b.id === 'string' && db.aparelhos[b.id];
+  if (!a || a.status !== 'ativo') return json(res, 403, { erro: 'Aparelho sem acesso.' });
+  const base = { versao: db.versao, pessoas: db.pessoas };
+  if (req.method === 'GET') {
+    if (!db.estado) return json(res, 200, { ...base, estado: null });
+    return json(res, 200, b.v === db.versao ? { ...base, igual: true } : { ...base, estado: db.estado });
+  }
+  if (b.op === 'iniciar' || b.op === 'substituir') {
+    if (b.op === 'iniciar' && db.estado) return json(res, 409, { ...base, erro: 'Já existe estado.' });
+    const novo = estadoLimpo(b.estado);
+    if (!novo) return json(res, 400, { erro: 'Estado inválido.' });
+    db.estado = novo;
+  } else {
+    const e = db.estado;
+    if (!e) return json(res, 409, { ...base, erro: 'Sem estado.' });
+    if (b.op === 'marcar' && typeof b.chave === 'string' && b.chave && b.chave.length <= 200 && typeof b.valor === 'boolean') {
+      if (b.valor) e.done[b.chave] = 1; else delete e.done[b.chave];
+      podarMarcacoes();
+    } else if (b.op === 'limpar') e.done = {};
+    else if (b.op === 'troca' && typeof b.chave === 'string' && b.chave && b.chave.length <= 100 && (b.valor === null || (Number.isInteger(b.valor) && b.valor >= 0 && b.valor <= 2))) {
+      if (b.valor === null) delete e.ov[b.chave]; else e.ov[b.chave] = b.valor;
+    } else if (b.op === 'tarefa') {
+      const t = tarefaLimpa(b.tarefa);
+      if (!t) return json(res, 400, { erro: 'Tarefa inválida.' });
+      const i = e.tasks.findIndex((x) => x.id === t.id);
+      if (i >= 0) e.tasks[i] = t; else if (e.tasks.length >= 200) return json(res, 400, { erro: 'Demasiadas tarefas.' }); else e.tasks.push(t);
+    } else if (b.op === 'tarefa-apagar' && typeof b.tid === 'string') e.tasks = e.tasks.filter((x) => x.id !== b.tid);
+    else if (b.op === 'cfg' && ((b.campo === 'anchor' && DATA_ISO.test(b.valor || '')) || (b.campo === 'roomsBase' && MES_ISO.test(b.valor || '')) || (b.campo === 'trashOn' && typeof b.valor === 'boolean'))) e[b.campo] = b.valor;
+    else return json(res, 400, { erro: 'Operação inválida.' });
+  }
+  db.versao++; gravar();
+  json(res, 200, { versao: db.versao });
+}
+// O estado só se pode validar depois de as funções acima existirem.
+db.estado = estadoCru ? estadoLimpo(estadoCru) : null;
 
 /* ---------- API de admin ---------- */
 async function admin(req, res, rota) {
@@ -183,6 +268,7 @@ async function admin(req, res, rota) {
 const servidor = http.createServer((req, res) => {
   const caminho = req.url.split('?')[0];
   if (caminho === '/api/hello' && req.method === 'POST') return hello(req, res).catch(() => json(res, 500, { erro: 'Erro interno.' }));
+  if (caminho === '/api/estado' && ['GET', 'POST'].includes(req.method)) return estadoApi(req, res).catch(() => json(res, 500, { erro: 'Erro interno.' }));
   if (caminho === '/api/pessoas' && req.method === 'POST') return mudarPessoa(req, res).catch(() => json(res, 500, { erro: 'Erro interno.' }));
   if (caminho.startsWith('/api/admin/')) return admin(req, res, caminho).catch(() => json(res, 500, { erro: 'Erro interno.' }));
   if (caminho.startsWith('/api/')) return json(res, 404, { erro: 'Não encontrado.' });

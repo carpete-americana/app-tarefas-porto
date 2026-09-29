@@ -331,7 +331,7 @@ function viewMais(){
    <div class="f"><label>Segunda-feira da «Semana 1» (as semanas 2 e 3 seguem-se, e repete)</label><input type="date" value="${S.anchor}" data-act="anchor"></div>
    <div class="f"><label>Mês de partida do quarto individual (é da 1.ª pessoa; depois roda 1 pessoa por mês)</label><input type="month" value="${S.roomsBase}" data-act="roomsBase"></div>
    <label class="row"><input type="checkbox" data-act="trashOn" ${S.trashOn?'checked':''}> Incluir o lixo (seg, qua, sex, dom)</label></div>
-  <div class="card"><h2>Dados</h2><p class="muted">Os dados ficam guardados só neste aparelho (${total} tarefas marcadas). Para partilhar entre os três, exporta e importa o ficheiro.</p>
+  <div class="card"><h2>Dados</h2><p class="muted">As tarefas, marcações e definições são partilhadas por todos os aparelhos e atualizam sozinhas (${total} marcações). Exportar/Importar serve de cópia de segurança. <b>Atenção:</b> limpar, repor e importar afetam toda a gente.</p>
    <div class="row"><button class="btn" data-act="export">Exportar</button><button class="btn" data-act="import">Importar</button>
    <button class="btn" data-act="clearDone">Limpar marcações</button><button class="btn danger" data-act="reset">Repor tudo</button></div></div>`;
 }
@@ -359,7 +359,7 @@ function openTask(id){
     const nt={...t,title:f.title.value.trim(),room:f.room.value.trim(),who:w,repeat:f.repeat.value,note:f.note.value.trim(),date:f.date.value,weekday:Number(f.weekday.value)};
     if(!nt.title)return;
     if(nt.id){S.tasks=S.tasks.map(x=>x.id===nt.id?nt:x)}else{nt.id=uid();S.tasks.push(nt)}
-    save();$dlg.close();render()};
+    save();$dlg.close();render();op({op:'tarefa',tarefa:nt})};
   $dlg.showModal();
 }
 
@@ -378,30 +378,30 @@ document.addEventListener('click',e=>{
   if(a==='tab'){ui.tab=b.dataset.t;window.scrollTo(0,0);render()}
   else if(a==='filter'){ui.filter=Number(b.dataset.i);try{localStorage.setItem(FKEY,ui.filter)}catch(e){}render();hello()}
   else if(a==='wk'){const d=Number(b.dataset.d);ui.week=d===0?mondayOf(today()):addDays(ui.week,7*d);render()}
-  else if(a==='toggle'){const k=b.dataset.k;if(S.done[k])delete S.done[k];else S.done[k]=1;save();render()}
+  else if(a==='toggle'){const k=b.dataset.k;if(S.done[k])delete S.done[k];else S.done[k]=1;save();render();op({op:'marcar',chave:k,valor:!!S.done[k]})}
   else if(a==='days'){const k=b.dataset.dk;ui.dayOpen[k]=!ui.dayOpen[k];render()}
   else if(a==='new')openTask(null);
   else if(a==='edit')openTask(b.dataset.id);
   else if(a==='closeDlg')$dlg.close();
-  else if(a==='toggleActive'){const t=S.tasks.find(x=>x.id===b.dataset.id);t.active=!t.active;save();render()}
-  else if(a==='delTask'){if(b.dataset.arm){S.tasks=S.tasks.filter(x=>x.id!==b.dataset.id);save();$dlg.close();render()}else{b.dataset.arm=1;b.textContent='Confirmar apagar'}}
+  else if(a==='toggleActive'){const t=S.tasks.find(x=>x.id===b.dataset.id);t.active=!t.active;save();render();op({op:'tarefa',tarefa:t})}
+  else if(a==='delTask'){if(b.dataset.arm){S.tasks=S.tasks.filter(x=>x.id!==b.dataset.id);save();$dlg.close();render();op({op:'tarefa-apagar',tid:b.dataset.id})}else{b.dataset.arm=1;b.textContent='Confirmar apagar'}}
   else if(a==='export'){const blob=new Blob([JSON.stringify(S,null,1)],{type:'application/json'});const u=URL.createObjectURL(blob);const l=document.createElement('a');l.href=u;l.download='tarefas-porto.json';l.click();setTimeout(()=>URL.revokeObjectURL(u),2000)}
   else if(a==='import')document.getElementById('file').click();
-  else if(a==='clearDone'){if(b.dataset.arm){S.done={};save();render()}else{b.dataset.arm=1;b.textContent='Confirmar?'}}
-  else if(a==='reset'){if(b.dataset.arm){S=freshState();save();render()}else{b.dataset.arm=1;b.textContent='Apagar tudo? Clica de novo'}}
+  else if(a==='clearDone'){if(b.dataset.arm){S.done={};save();render();op({op:'limpar'})}else{b.dataset.arm=1;b.textContent='Confirmar?'}}
+  else if(a==='reset'){if(b.dataset.arm){const p=S.people;S=freshState();S.people=p;save();render();op({op:'substituir',estado:estadoLocal()})}else{b.dataset.arm=1;b.textContent='Apagar tudo? Clica de novo'}}
 });
 document.addEventListener('toggle',e=>{const d=e.target;if(d.classList?.contains('pcard')&&ui.filter===-1)ui.open[d.dataset.p]=d.open},true);
 document.addEventListener('change',e=>{
   const b=e.target,a=b.dataset?.act;if(!a)return;
-  if(a==='ov'){const v=Number(b.value);if(v===Number(b.dataset.def))delete S.ov[b.dataset.k];else S.ov[b.dataset.k]=v;save();render()}
+  if(a==='ov'){const v=Number(b.value);if(v===Number(b.dataset.def))delete S.ov[b.dataset.k];else S.ov[b.dataset.k]=v;save();render();op({op:'troca',chave:b.dataset.k,valor:S.ov[b.dataset.k]??null})}
   else if(a==='rename'){const i=Number(b.dataset.i);S.people[i]=b.value.trim()||S.people[i];save();render();enviarNome(i)}
-  else if(a==='anchor'&&b.value){S.anchor=b.value;save();render()}
-  else if(a==='roomsBase'&&b.value){S.roomsBase=b.value;save();render()}
-  else if(a==='trashOn'){S.trashOn=b.checked;save()}
+  else if(a==='anchor'&&b.value){S.anchor=b.value;save();render();op({op:'cfg',campo:'anchor',valor:b.value})}
+  else if(a==='roomsBase'&&b.value){S.roomsBase=b.value;save();render();op({op:'cfg',campo:'roomsBase',valor:b.value})}
+  else if(a==='trashOn'){S.trashOn=b.checked;save();op({op:'cfg',campo:'trashOn',valor:b.checked})}
 });
 document.getElementById('file').addEventListener('change',async e=>{
   const f=e.target.files[0];if(!f)return;
-  try{const j=JSON.parse(await f.text());if(!Array.isArray(j.tasks)||!Array.isArray(j.people))throw 0;S=j;save();render()}
+  try{const j=JSON.parse(await f.text());if(!Array.isArray(j.tasks)||!Array.isArray(j.people))throw 0;S={...freshState(),...j};save();render();op({op:'substituir',estado:estadoLocal()})}
   catch(_){alert('Ficheiro inválido.')}
   e.target.value='';
 });
@@ -442,7 +442,7 @@ async function hello(){
 function aplicarPessoas(p){
   if(!Array.isArray(p)||p.length!==3||p.every((n,i)=>n===S.people[i]))return;
   S.people=p.map(String);save();
-  if(!bloqueado&&estadoServ==='ativo')render();
+  if(!bloqueado&&estadoServ==='ativo')renderSeguro();
 }
 async function enviarNome(i){
   const id=idAparelho();if(!id||!/^https?:$/.test(location.protocol))return;
@@ -452,7 +452,7 @@ function aplicarEstado(st){
   if(st===estadoServ)return;estadoServ=st;
   const g=document.getElementById('gate');
   clearInterval(pollHello);
-  if(st==='ativo'){g.hidden=true;document.querySelector('.app').hidden=false;render();return}
+  if(st==='ativo'){g.hidden=true;document.querySelector('.app').hidden=false;render();sincronizar();return}
   const pend=st==='pendente';
   g.innerHTML=`<div class="box"><img src="/icon-192.png" alt=""><h1>${pend?'À espera de aprovação':'Acesso bloqueado'}</h1>
     <p class="lead">${pend?'O administrador ainda tem de aprovar este aparelho. Esta página atualiza sozinha.':'Este aparelho não tem acesso. Se achas que é engano, fala com o administrador.'}</p>
@@ -461,8 +461,60 @@ function aplicarEstado(st){
   document.getElementById('verificar').onclick=hello;
   pollHello=setInterval(hello,30000);
 }
-document.addEventListener('visibilitychange',()=>{if(!document.hidden&&Date.now()-ultimoHello>60000)hello()});
-if(bloqueado)mostrarGate();else{render();hello()}
+/* ---------- estado partilhado: tarefas, marcações, trocas e definições ---------- */
+const CAMPOS=['tasks','done','ov','anchor','roomsBase','trashOn'];
+let versaoSrv=-1,emVoo=0,sincEmCurso=false,renderPendente=false;
+const comRede=()=>/^https?:$/.test(location.protocol);
+const estadoLocal=()=>Object.fromEntries(CAMPOS.map(c=>[c,S[c]]));
+function renderSeguro(){ // não refaz o ecrã enquanto a pessoa escreve num campo
+  const a=document.activeElement;
+  if(a&&$main.contains(a)&&/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)&&a.type!=='checkbox'){renderPendente=true;return}
+  render();
+}
+document.addEventListener('focusout',()=>{if(renderPendente){renderPendente=false;setTimeout(render,60)}});
+async function chamarEstado(corpo){
+  const r=await fetch('/api/estado',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:idAparelho(),...corpo})});
+  return {ok:r.ok,status:r.status,j:await r.json().catch(()=>({}))};
+}
+// A mudança já está no ecrã; isto avisa o servidor. Se algo falhar, o próximo sincronizar() repõe a verdade.
+async function op(corpo){
+  if(!comRede()||bloqueado||!idAparelho())return;
+  emVoo++;
+  try{
+    const r=await chamarEstado(corpo);
+    if(r.ok&&r.j.versao===versaoSrv+1)versaoSrv=r.j.versao;
+    else{versaoSrv=-1;if(r.status===403)hello()}
+  }catch(e){versaoSrv=-1}
+  finally{emVoo--}
+  if(versaoSrv===-1)sincronizar();
+}
+async function sincronizar(){
+  if(!comRede()||bloqueado||estadoServ!=='ativo'||emVoo>0||sincEmCurso)return;
+  const id=idAparelho();if(!id)return;
+  sincEmCurso=true;
+  try{
+    const r=await fetch(`/api/estado?id=${encodeURIComponent(id)}&v=${versaoSrv}`,{cache:'no-store'});
+    if(r.status===403){hello();return}
+    if(!r.ok)return;
+    const j=await r.json();
+    aplicarPessoas(j.pessoas);
+    if(emVoo>0)return;
+    if(j.estado===null){ // servidor vazio: este aparelho lança o estado
+      const c=await chamarEstado({op:'iniciar',estado:estadoLocal()});
+      versaoSrv=c.ok?c.j.versao:-1;return;
+    }
+    if(j.igual){versaoSrv=j.versao;return}
+    CAMPOS.forEach(c=>{S[c]=j.estado[c]});save();versaoSrv=j.versao;renderSeguro();
+  }catch(e){/* sem rede: fica o que está no aparelho */}
+  finally{sincEmCurso=false}
+}
+document.addEventListener('visibilitychange',()=>{
+  if(document.hidden)return;
+  if(Date.now()-ultimoHello>60000)hello();
+  sincronizar();
+});
+setInterval(()=>{if(!document.hidden)sincronizar()},5000);
+if(bloqueado)mostrarGate();else{render();hello().then(sincronizar)}
 </script>
 </body>
 </html>

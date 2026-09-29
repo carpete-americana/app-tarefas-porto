@@ -73,3 +73,50 @@ test('login trava depois de 8 falhas', async () => {
   let ultimo; for (let i = 0; i < 10; i++) ultimo = (await post('/api/admin/login', { password: 'x' })).status;
   assert.strictEqual(ultimo, 429);
 });
+
+/* ---------- estado partilhado ---------- */
+const T1 = { id: 't1', title: 'Loiça', room: 'Cozinha', repeat: 'daily', who: 'rota', note: '', active: true, date: '', weekday: 0 };
+const EST = { tasks: [T1], done: {}, ov: {}, anchor: '2026-09-28', roomsBase: '2026-10', trashOn: true };
+const get = async (id, v) => (await fetch(`${base}/api/estado?id=${id}&v=${v}`)).json();
+const op = (id, corpo) => post('/api/estado', { id, ...corpo });
+const A = 'dddddddd-1111-2222-3333-444444444444', C = 'eeeeeeee-1111-2222-3333-444444444444';
+
+test('estado: o primeiro aparelho lança, o segundo recebe', async () => {
+  await adm('/api/admin/config', { aprovacao: false });
+  await post('/api/hello', { id: A }); await post('/api/hello', { id: C });
+  assert.strictEqual((await get(A, -1)).estado, null);
+  const r = await op(A, { op: 'iniciar', estado: EST });
+  assert.strictEqual(r.status, 200);
+  assert.strictEqual((await op(C, { op: 'iniciar', estado: EST })).status, 409, 'já existe');
+  const j = await get(C, -1); assert.strictEqual(j.estado.tasks[0].title, 'Loiça');
+});
+test('estado: marcar, trocar, tarefa, cfg e versão', async () => {
+  let v = (await get(A, -1)).versao;
+  const r = await (await op(A, { op: 'marcar', chave: 't1|2026-09-29|0|1', valor: true })).json();
+  assert.strictEqual(r.versao, v + 1);
+  assert.strictEqual((await get(C, v)).estado.done['t1|2026-09-29|0|1'], 1, 'outro aparelho vê a marcação');
+  assert.strictEqual((await get(C, v + 1)).igual, true);
+  await op(A, { op: 'troca', chave: '2026-09-28|Cozinha', valor: 2 });
+  await op(A, { op: 'tarefa', tarefa: { ...T1, id: 't2', title: 'Regar <b>plantas', who: 1, repeat: 'w1' } });
+  await op(A, { op: 'cfg', campo: 'trashOn', valor: false });
+  let e = (await get(C, -1)).estado;
+  assert.strictEqual(e.ov['2026-09-28|Cozinha'], 2);
+  assert.strictEqual(e.tasks.find((t) => t.id === 't2').title, 'Regar bplantas');
+  assert.strictEqual(e.trashOn, false);
+  await op(A, { op: 'troca', chave: '2026-09-28|Cozinha', valor: null });
+  await op(A, { op: 'tarefa-apagar', tid: 't2' });
+  e = (await get(C, -1)).estado; assert.deepStrictEqual(e.ov, {}); assert.strictEqual(e.tasks.length, 1);
+  await op(A, { op: 'limpar' }); assert.deepStrictEqual((await get(C, -1)).estado.done, {});
+});
+test('estado: entradas inválidas e aparelhos sem acesso são recusados', async () => {
+  assert.strictEqual((await op(A, { op: 'tarefa', tarefa: { id: 'x', title: '', room: 'a', repeat: 'daily', who: 'rota' } })).status, 400);
+  assert.strictEqual((await op(A, { op: 'tarefa', tarefa: { ...T1, repeat: 'nunca' } })).status, 400);
+  assert.strictEqual((await op(A, { op: 'cfg', campo: 'anchor', valor: 'ontem' })).status, 400);
+  assert.strictEqual((await op(A, { op: 'troca', chave: 'k', valor: 7 })).status, 400);
+  assert.strictEqual((await op(A, { op: 'apagar-tudo' })).status, 400);
+  assert.strictEqual((await op(A, { op: 'substituir', estado: { ...EST, anchor: 'x' } })).status, 400);
+  assert.strictEqual((await fetch(`${base}/api/estado?id=desconhecido-123&v=0`)).status, 403);
+  await adm('/api/admin/aparelho', { id: C, acao: 'bloquear' });
+  assert.strictEqual((await get(C, -1)).erro !== undefined, true, 'bloqueado não lê');
+  assert.strictEqual((await op(C, { op: 'marcar', chave: 'k', valor: true })).status, 403, 'bloqueado não escreve');
+});

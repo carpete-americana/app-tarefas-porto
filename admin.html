@@ -57,14 +57,17 @@ input[type=text],input[type=password],input[type=search]{border:1px solid var(--
     <p class="err" id="lerr" role="alert"></p><button class="btn pri" style="width:100%">Entrar</button></form>
   </div>
   <div id="painel" hidden>
-    <div class="top"><h1 class="grow">Aparelhos</h1><span class="muted" id="upd"></span><button class="btn sm" id="atualizar">Atualizar</button><button class="btn sm" id="sair">Sair</button></div>
+    <div class="top"><h1 class="grow">Aparelhos</h1><span class="muted" id="upd"></span><a class="btn sm" href="/api/admin/backup" download style="text-decoration:none;display:inline-flex;align-items:center">Exportar</a><button class="btn sm" id="atualizar">Atualizar</button><button class="btn sm" id="sair">Sair</button></div>
     <div class="tiles" id="tiles"></div>
     <div class="card"><label class="sw"><input type="checkbox" id="aprov"><span><b>Exigir aprovação de aparelhos novos</b><br><span class="muted">Desligado: entram logo. Ligado: ficam «pendentes» até os aprovares. Os que já existem não são afetados.</span></span></label></div>
+    <div class="card"><b>Nomes das pessoas</b><p class="muted" style="margin:2px 0 10px">Mudam para todos os aparelhos.</p>
+      <form id="nf" class="row" style="align-items:flex-end"><div id="nomes" class="row grow" style="flex-wrap:wrap"></div><button class="btn pri">Guardar nomes</button></form><p class="err" id="nerr" role="status" style="color:var(--ok)"></p></div>
     <div class="card">
       <div class="row" style="margin-bottom:6px"><div class="chips" id="filtros"></div><div class="grow"></div></div>
       <input type="search" id="q" placeholder="Procurar…" style="margin:8px 0 4px">
       <div id="lista"></div>
     </div>
+    <div class="card"><b>Atividade recente</b><div id="ativ" style="margin-top:6px"></div></div>
   </div>
 </div>
 <script>
@@ -81,7 +84,7 @@ async function api(p,corpo){
 }
 function mostrarLogin(){clearInterval(timer);$('#painel').hidden=true;$('#login').hidden=false;$('#pw').focus()}
 async function carregar(){
-  try{D=await api('/api/admin/dados');$('#login').hidden=true;$('#painel').hidden=false;desenhar()}
+  try{D=await api('/api/admin/dados');D.ativ=(await api('/api/admin/atividade')).itens;$('#login').hidden=true;$('#painel').hidden=false;desenhar()}
   catch(e){if(e.message!=='sessao'){$('#lerr').textContent=e.message;mostrarLogin()}}
 }
 function rel(t){const s=Math.max(0,(D.agora-t)/1000);if(s<90)return 'agora mesmo';if(s<3600)return 'há '+Math.round(s/60)+' min';if(s<86400)return 'há '+Math.round(s/3600)+' h';return 'há '+Math.round(s/86400)+' d'}
@@ -90,6 +93,8 @@ function desenhar(){
   const A=D.aparelhos,n=(f)=>A.filter(f).length;
   $('#upd').textContent='atualizado '+new Date().toLocaleTimeString('pt-PT',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
   $('#aprov').checked=!!D.config.aprovacao;
+  if(!$('#nomes').contains(document.activeElement))$('#nomes').innerHTML=D.pessoas.map((n,i)=>`<label style="flex:1 1 130px;min-width:0"><span class="muted">Pessoa ${i+1}</span><input type="text" maxlength="20" value="${esc(n)}" data-n="${i}" required></label>`).join('');
+  $('#ativ').innerHTML=D.ativ.length?D.ativ.slice(0,40).map(h=>`<div class="dev"><div><b>${esc(h.quem)}</b> ${esc(h.texto)}</div><div class="meta"><span>${rel(h.t)}</span></div></div>`).join(''):'<p class="muted">Ainda sem atividade.</p>';
   $('#tiles').innerHTML=[['Aparelhos',A.length],['Online agora',n(a=>D.agora-a.ultimo<5*60e3)],['Ativos hoje',n(a=>D.agora-a.ultimo<864e5)],['Instalados',n(a=>a.instalada)],['Pendentes',n(a=>a.status==='pendente')],['Bloqueados',n(a=>a.status==='bloqueado')]]
     .map(([l,v])=>`<div class="tile"><b>${v}</b><span class="muted">${l}</span></div>`).join('');
   const fs=[['todos','Todos'],['pendente','Pendentes'],['ativo','Ativos'],['bloqueado','Bloqueados']];
@@ -106,6 +111,9 @@ function desenhar(){
 $('#lf').onsubmit=async e=>{e.preventDefault();$('#lerr').textContent='';
   try{await api('/api/admin/login',{password:$('#pw').value});$('#pw').value='';await carregar();timer=setInterval(carregar,20000)}
   catch(err){$('#lerr').textContent=err.message}};
+$('#nf').onsubmit=async e=>{e.preventDefault();$('#nerr').textContent='';
+  try{await api('/api/admin/pessoas',{pessoas:[...document.querySelectorAll('#nomes input')].map(i=>i.value)});$('#nerr').textContent='Guardado.';await carregar()}
+  catch(err){$('#nerr').style.color='var(--bad)';$('#nerr').textContent=err.message}};
 $('#atualizar').onclick=()=>carregar();
 $('#sair').onclick=async()=>{try{await api('/api/admin/logout',{})}catch(e){}mostrarLogin()};
 $('#aprov').onchange=async e=>{try{await api('/api/admin/config',{aprovacao:e.target.checked});await carregar()}catch(err){alert(err.message);await carregar()}};

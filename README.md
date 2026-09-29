@@ -17,3 +17,14 @@ App responsiva para gerir as tarefas domésticas do T2 (rotação de 3 semanas, 
 - **Estado partilhado** (`/api/estado`): tarefas, marcações, trocas de responsável e definições (semana 1, mês dos quartos, lixo) vivem no servidor e cada aparelho sincroniza de 5 em 5 segundos com a app aberta. O primeiro aparelho a abrir lança o estado; os outros recebem-no. As mudanças são operações pequenas (marcar, trocar, gravar tarefa…), por isso duas pessoas a marcar tarefas diferentes não se sobrepõem. Marcações com mais de 150 dias são apagadas. Sem rede a app continua a funcionar com o que tem, mas o que se marcar offline perde-se no próximo sincronizar.
 - Sessão de admin em memória: um Restart obriga a entrar de novo. Trava depois de 8 tentativas falhadas em 15 minutos.
 - Testes: `node --test test/app.test.js`.
+
+## Tarefas, estatísticas e atividade
+
+A página **Tarefas** tem três separadores: a lista (procura, filtro por divisão, duplicar, restaurar originais, «Desfazer» ao apagar), **Estatísticas** (% por pessoa nas últimas 4 semanas e o que está em atraso, contando só desde a «Semana 1») e **Atividade** (quem fez o quê, guardado no servidor: últimas 200 ações). Uma tarefa pode ser **rotativa** (muda de pessoa todas as semanas).
+
+## Robustez
+
+- **Sem rede**: as alterações ficam numa fila guardada no aparelho e seguem por ordem quando a ligação volta. O service worker guarda a última versão da app, por isso ela abre offline (rede primeiro, cópia só se a rede falhar).
+- **Cópias de segurança**: uma por dia em `data/backups/` (as 14 mais recentes). O admin tem «Exportar» para descarregar tudo.
+- **Segurança**: CSP e `frame-ancestors 'none'` nas páginas; `/api/saude` para monitorização.
+- **Definições**: tema claro/escuro/automático, estado da sincronização e «Procurar atualização» (limpa a cache da app).

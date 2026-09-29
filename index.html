@@ -105,6 +105,16 @@ details.pcard>.body{padding:0 14px 12px}
 #gate li{counter-increment:p;display:flex;gap:12px;padding:12px 0;border-top:1px solid var(--line);align-items:flex-start}
 #gate li::before{content:counter(p);flex:none;width:28px;height:28px;border-radius:50%;background:var(--pri);color:var(--pri-ink);font-weight:700;display:grid;place-content:center;font-size:14px}
 #gate .btn{width:100%;margin-top:14px}
+.seg{display:flex;background:var(--chip);border-radius:12px;padding:4px;gap:4px;margin-bottom:12px}
+.seg button{flex:1;border:0;background:none;border-radius:9px;padding:9px 6px;cursor:pointer;color:var(--mute);font-weight:600;min-height:40px}
+.seg button[aria-selected=true]{background:var(--card);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.15)}
+#toast{position:fixed;left:50%;transform:translate(-50%,20px);bottom:calc(env(safe-area-inset-bottom,0px) + 84px);background:#1c1d2b;color:#fff;border-radius:12px;padding:10px 10px 10px 16px;display:flex;gap:12px;align-items:center;z-index:50;opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;max-width:calc(100vw - 32px)}
+#toast.on{opacity:1;transform:translate(-50%,0);pointer-events:auto}
+#toast button{background:none;border:0;color:#a5b4fc;font-weight:700;cursor:pointer;padding:6px 6px;min-height:36px}
+@media(min-width:760px){#toast{bottom:24px}}
+button:focus-visible,select:focus-visible,input:focus-visible,summary:focus-visible{outline:3px solid var(--pri);outline-offset:2px}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{transition:none!important;animation:none!important}}
+.ativ .quem{font-weight:700}
 </style>
 </head>
 <body>
@@ -115,6 +125,7 @@ details.pcard>.body{padding:0 14px 12px}
 </div>
 <div id="gate" hidden></div>
 <dialog id="dlg"></dialog>
+<div id="toast" role="status" aria-live="polite"></div>
 <input type="file" id="file" accept=".json,application/json" hidden>
 <script>
 'use strict';
@@ -124,6 +135,11 @@ const DAYS_LONG=['Segunda','Terça','Quarta','Quinta','Sexta','Sábado','Domingo
 const COMMON=['Cozinha','Sala','Casa de banho'];
 const REPEAT={daily:'Diária',w2:'2x por semana',w1:'1x por semana',need:'Conforme necessário',wday:'Semanal em dia fixo',once:'Uma vez'};
 const KEY='tarefas-porto-v1';
+const TKEY='tarefas-porto-tema',VERSAO='29/09/2026';
+function temaAtual(){try{return localStorage.getItem(TKEY)||'auto'}catch(e){return 'auto'}}
+function aplicarTema(k){const r=document.documentElement;if(k==='light'||k==='dark')r.setAttribute('data-theme',k);else r.removeAttribute('data-theme');try{localStorage.setItem(TKEY,k)}catch(e){}}
+aplicarTema(temaAtual());
+function haQuanto(t){const m=Math.max(0,(Date.now()-t)/60000);if(m<1.5)return 'agora mesmo';if(m<60)return 'há '+Math.round(m)+' min';if(m<1440)return 'há '+Math.round(m/60)+' h';return 'há '+Math.round(m/1440)+' d'}
 const mod=(a,n)=>((a%n)+n)%n;
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const pad=n=>String(n).padStart(2,'0');
@@ -170,7 +186,7 @@ if(!S||!Array.isArray(S.tasks))S=freshState();
 const save=()=>{try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}};
 const FKEY='tarefas-porto-filtro';
 let f0=-1;try{const v=localStorage.getItem(FKEY);f0=v===null?-1:Number(v);if(!Number.isInteger(f0)||f0<-1||f0>=S.people.length)f0=-1}catch(e){f0=-1}
-const ui={tab:'hoje',week:mondayOf(today()),filter:f0,open:{},dayOpen:{}};
+const ui={tab:'hoje',week:mondayOf(today()),filter:f0,open:{},dayOpen:{},sub:'lista',q:'',room:'todas',ativ:null};
 const PCOL=i=>`var(--p${i%3})`;
 const who=i=>S.people[i]??'?';
 
@@ -198,6 +214,7 @@ function roomsMonth(date){ // {ind: pessoa do quarto individual, shared:[2 pesso
 function personsFor(t,mon,date){
   if(t.who==='rota')return COMMON.includes(t.room)?[respRoom(t.room,mon)]:[0,1,2];
   if(t.who==='quartos'||t.who==='todos')return [0,1,2];
+  if(t.who==='rodar'){let h=0;for(const c of String(t.id))h+=c.charCodeAt(0);return [mod(weekAbs(mon)+h,3)]}
   const n=Number(t.who);return n<S.people.length?[n]:[];
 }
 function genWeek(mon){
@@ -314,15 +331,63 @@ function viewRot(){
    <p class="muted">A sequência repete-se de 3 em 3 meses. Cada pessoa limpa o quarto que ocupa nesse mês; no partilhado os dois ocupantes são responsáveis.</p></div>
    <div class="card"><h2>Lixo — de 2 em 2 dias</h2><div class="scroll"><table><tr><th></th><th>Segunda</th><th>Quarta</th><th>Sexta</th><th>Domingo</th></tr>${tr}</table></div></div>`;
 }
-function viewTarefas(){
-  const rooms=[...new Set(S.tasks.map(t=>t.room))];
-  const wholbl=t=>t.who==='rota'?'rotação da divisão':t.who==='quartos'?'ocupantes do quarto':t.who==='todos'?'todos':who(Number(t.who));
-  const rep=t=>t.repeat==='wday'?`Semanal (${DAYS_LONG[t.weekday||0]})`:t.repeat==='once'?'Uma vez em '+(t.date?parse(t.date).toLocaleDateString('pt-PT'):'?'):REPEAT[t.repeat];
-  return `<div class="card row"><div class="grow"><h2 style="margin:0">Tarefas</h2><div class="muted">${S.tasks.filter(t=>t.active).length} ativas de ${S.tasks.length}</div></div><button class="btn pri" data-act="new">+ Nova tarefa</button></div>`+
-   rooms.map(r=>`<div class="card"><h3>${esc(r)}</h3>`+S.tasks.filter(t=>t.room===r).map(t=>`<div class="item" style="align-items:center;opacity:${t.active?1:.5}">
-     <div class="grow"><span class="t">${esc(t.title)}</span><span class="s">${rep(t)} · ${esc(wholbl(t))}${t.note?' · '+esc(t.note):''}</span></div>
+const wholbl=t=>t.who==='rota'?'rotação da divisão':t.who==='quartos'?'ocupantes do quarto':t.who==='todos'?'todos':t.who==='rodar'?'rotativo':who(Number(t.who));
+const repTxt=t=>t.repeat==='wday'?`Semanal (${DAYS_LONG[t.weekday||0]})`:t.repeat==='once'?'Uma vez em '+(t.date?parse(t.date).toLocaleDateString('pt-PT'):'?'):REPEAT[t.repeat];
+function listaHtml(){
+  const q=(ui.q||'').trim().toLowerCase(),mon=mondayOf(today());
+  const L=S.tasks.filter(t=>(ui.room==='todas'||t.room===ui.room)&&(!q||[t.title,t.note,t.room].join(' ').toLowerCase().includes(q)));
+  if(!L.length)return '<div class="empty">Nenhuma tarefa encontrada.</div>';
+  return [...new Set(L.map(t=>t.room))].map(r=>`<div class="card"><h3>${esc(r)}</h3>`+L.filter(t=>t.room===r).map(t=>{
+    const semana=(t.who==='rota'||t.who==='rodar')?' · esta semana: <b>'+personsFor(t,mon).map(who).map(esc).join(', ')+'</b>':'';
+    return `<div class="item" style="align-items:center;opacity:${t.active?1:.5}">
+     <div class="grow"><span class="t">${esc(t.title)}</span><span class="s">${repTxt(t)} · ${esc(wholbl(t))}${semana}${t.note?' · '+esc(t.note):''}</span></div>
      <button class="btn sm" data-act="toggleActive" data-id="${t.id}">${t.active?'Pausar':'Ativar'}</button>
-     <button class="btn sm" data-act="edit" data-id="${t.id}">Editar</button></div>`).join('')+'</div>').join('');
+     <button class="btn sm" data-act="edit" data-id="${t.id}">Editar</button></div>`}).join('')+'</div>').join('');
+}
+function subLista(){
+  const rooms=[...new Set(S.tasks.map(t=>t.room))];
+  return `<div class="card row"><div class="grow"><h2 style="margin:0">Tarefas</h2><div class="muted">${S.tasks.filter(t=>t.active).length} ativas de ${S.tasks.length}</div></div><button class="btn pri" data-act="new">+ Nova tarefa</button></div>
+   <div class="card"><input type="search" data-act="q" placeholder="Procurar tarefa…" value="${esc(ui.q||'')}" style="width:100%;min-height:44px;border:1px solid var(--line);background:var(--card);border-radius:10px;padding:9px 11px" aria-label="Procurar tarefa">
+   <div class="chips" style="margin-top:10px">${['todas',...rooms].map(r=>`<button class="chip" data-act="room" data-r="${esc(r)}" aria-pressed="${ui.room===r}">${r==='todas'?'Todas':esc(r)}</button>`).join('')}</div>
+   <div style="margin-top:10px"><button class="btn sm" data-act="restaurar">Restaurar tarefas originais</button></div></div>
+   <div id="lista">${listaHtml()}</div>`;
+}
+function subStats(){
+  const now=today(),mon0=mondayOf(now),a0=anchor();
+  const sem=[0,1,2,3].map(i=>{const mon=addDays(mon0,-7*i),occ=genWeek(mon);return {i,mon,occ,ok:mon>=a0,pp:S.people.map((n,p)=>progress(occ.filter(o=>o.p===p)))}});
+  const tot=S.people.map((n,p)=>{let d=0,nn=0;sem.filter(x=>x.ok).forEach(x=>{d+=x.pp[p].d;nn+=x.pp[p].n});return {d,n:nn,pct:nn?Math.round(d/nn*100):0}});
+  const cards=S.people.map((n,p)=>`<div class="card" style="border-top:4px solid ${PCOL(p)}"><div class="row"><h3 class="grow" style="margin:0"><span class="dot" style="background:${PCOL(p)}"></span>${esc(n)}</h3><b>${tot[p].n?tot[p].pct+'%':'—'}</b></div>${bar(tot[p])}
+    <p class="muted" style="margin:8px 0 4px">Últimas 4 semanas · ${tot[p].d}/${tot[p].n}</p>
+    ${sem.map(x=>`<div class="row" style="justify-content:space-between;padding:3px 0;font-size:14px"><span>${dm(x.mon)} – ${dm(addDays(x.mon,6))}${x.i===0?' <span class="tag">atual</span>':''}</span><span>${x.ok?x.pp[p].d+'/'+x.pp[p].n:'—'}</span></div>`).join('')}</div>`).join('');
+  const tarde=[],diarias=S.people.map(()=>0);
+  sem.filter(x=>x.ok).forEach(x=>x.occ.forEach(o=>{
+    if(o.optional||isDone(o))return;
+    const diaria=o.kind==='day'&&o.t.repeat==='daily';
+    if(o.kind==='day'&&o.date<now){if(diaria)diarias[o.p]++;else tarde.push(o)}
+    else if(o.kind==='week'&&x.i>0)tarde.push(o);
+  }));
+  return `<div class="grid3">${cards}</div>
+   <p class="muted" style="margin:-2px 2px 12px">A percentagem conta as tarefas atribuídas a cada pessoa (com trocas incluídas). A semana atual ainda tem dias por vir.</p>
+   <div class="card"><h3>Em atraso</h3>${tarde.length?tarde.slice(0,40).map(o=>itemRow(o,{showPerson:true,showDay:true})).join('')+(tarde.length>40?`<p class="muted">E mais ${tarde.length-40}…</p>`:''):'<div class="empty" style="padding:14px">Nada em atraso 🎉</div>'}
+   <p class="muted" style="margin:8px 0 0">${diarias.some(n=>n)?'Diárias por marcar: '+S.people.map((n,p)=>diarias[p]?esc(n)+' '+diarias[p]:'').filter(Boolean).join(' · ')+'. ':''}Só entram semanas desde a «Semana 1» das Definições.</p></div>`;
+}
+let ativTick=0;
+async function carregarAtividade(){
+  const id=idAparelho();
+  if(!comRede()||!id){ui.ativ=[];return}
+  try{
+    const r=await fetch('/api/atividade?id='+encodeURIComponent(id),{cache:'no-store'});
+    if(r.ok)ui.ativ=(await r.json()).itens;else if(ui.ativ===null)ui.ativ=[];
+  }catch(e){if(ui.ativ===null)ui.ativ=[]}
+  if(ui.tab==='tarefas'&&ui.sub==='ativ')renderSeguro();
+}
+function subAtiv(){
+  if(ui.ativ===null){carregarAtividade();return '<div class="empty">A carregar…</div>'}
+  return `<div class="card ativ"><h3>Atividade recente</h3>`+(ui.ativ.length?ui.ativ.map(h=>`<div class="item"><div class="grow"><span class="t"><span class="quem">${esc(h.quem)}</span> ${esc(h.texto)}</span><span class="s">${haQuanto(h.t)}</span></div></div>`).join(''):'<div class="empty" style="padding:14px">Ainda não há atividade (ou sem ligação ao servidor).</div>')+'</div>';
+}
+function viewTarefas(){
+  const seg=`<div class="seg" role="tablist">${[['lista','Tarefas'],['stats','Estatísticas'],['ativ','Atividade']].map(([k,l])=>`<button role="tab" aria-selected="${ui.sub===k}" data-act="sub" data-k="${k}">${l}</button>`).join('')}</div>`;
+  return seg+(ui.sub==='stats'?subStats():ui.sub==='ativ'?subAtiv():subLista());
 }
 function viewMais(){
   const total=Object.keys(S.done).length;
@@ -331,9 +396,18 @@ function viewMais(){
    <div class="f"><label>Segunda-feira da «Semana 1» (as semanas 2 e 3 seguem-se, e repete)</label><input type="date" value="${S.anchor}" data-act="anchor"></div>
    <div class="f"><label>Mês de partida do quarto individual (é da 1.ª pessoa; depois roda 1 pessoa por mês)</label><input type="month" value="${S.roomsBase}" data-act="roomsBase"></div>
    <label class="row"><input type="checkbox" data-act="trashOn" ${S.trashOn?'checked':''}> Incluir o lixo (seg, qua, sex, dom)</label></div>
+  <div class="card"><h2>Aparência</h2><div class="chips">${[['auto','Automático'],['light','Claro'],['dark','Escuro']].map(([k,l])=>`<button class="chip" data-act="tema" data-k="${k}" aria-pressed="${temaAtual()===k}">${l}</button>`).join('')}</div></div>
+  <div class="card"><h2>Sincronização</h2><p class="muted" style="margin:0 0 10px">${esc(textoSinc())}</p><button class="btn" data-act="sincNow">Sincronizar agora</button></div>
   <div class="card"><h2>Dados</h2><p class="muted">As tarefas, marcações e definições são partilhadas por todos os aparelhos e atualizam sozinhas (${total} marcações). Exportar/Importar serve de cópia de segurança. <b>Atenção:</b> limpar, repor e importar afetam toda a gente.</p>
    <div class="row"><button class="btn" data-act="export">Exportar</button><button class="btn" data-act="import">Importar</button>
-   <button class="btn" data-act="clearDone">Limpar marcações</button><button class="btn danger" data-act="reset">Repor tudo</button></div></div>`;
+   <button class="btn" data-act="clearDone">Limpar marcações</button><button class="btn danger" data-act="reset">Repor tudo</button></div></div>
+  <details class="card"><summary><b>Como funciona</b></summary><ul style="margin:10px 0 0;padding-left:20px;line-height:1.6">
+   <li><b>Hoje</b>: o que tens para fazer hoje. Escolhe o teu nome no topo e a app lembra-se.</li>
+   <li><b>Semana</b>: um cartão por pessoa; nas tarefas diárias marcas hoje e o contador abre os outros dias.</li>
+   <li><b>Rotações</b>: quem faz cada divisão, os quartos do mês e o lixo.</li>
+   <li><b>Tarefas</b>: cria, edita ou pausa tarefas; vê estatísticas e a atividade recente.</li>
+   <li>Tudo é partilhado: o que uma pessoa marca aparece aos outros em poucos segundos. Sem rede, as alterações ficam guardadas e seguem quando voltar a ligação.</li></ul></details>
+  <div class="card"><h2>Sobre</h2><p class="muted" style="margin:0 0 10px">Tarefas Porto · versão ${VERSAO}</p><button class="btn" data-act="atualizar">Procurar atualização</button></div>`;
 }
 
 /* ---------- diálogo de tarefa ---------- */
@@ -344,17 +418,17 @@ function openTask(id){
   $dlg.innerHTML=`<form method="dialog" id="tf"><h2 style="margin-top:0">${id?'Editar':'Nova'} tarefa</h2>
    <div class="f"><label>Tarefa</label><input type="text" name="title" required maxlength="120" value="${esc(t.title)}"></div>
    <div class="f"><label>Divisão / categoria</label><input type="text" name="room" list="rl" required maxlength="40" value="${esc(t.room)}"><datalist id="rl">${rooms.map(r=>`<option value="${esc(r)}">`).join('')}</datalist></div>
-   <div class="f"><label>Responsável</label><select name="who">${opt('rota','Rotação da divisão (só Cozinha, Sala, Casa de banho)',t.who)}${opt('quartos','Ocupantes do quarto (mensal)',t.who)}${opt('todos','Todos',t.who)}${S.people.map((n,i)=>opt(i,n,t.who)).join('')}</select></div>
+   <div class="f"><label>Responsável</label><select name="who">${opt('rota','Rotação da divisão (só Cozinha, Sala, Casa de banho)',t.who)}${opt('quartos','Ocupantes do quarto (mensal)',t.who)}${opt('todos','Todos',t.who)}${opt('rodar','Rotativo (muda de pessoa todas as semanas)',t.who)}${S.people.map((n,i)=>opt(i,n,t.who)).join('')}</select></div>
    <div class="f"><label>Frequência</label><select name="repeat">${Object.entries(REPEAT).map(([k,v])=>opt(k,v,t.repeat)).join('')}</select></div>
    <div class="f" data-for="once"><label>Data</label><input type="date" name="date" value="${t.date||fmt(today())}"></div>
    <div class="f" data-for="wday"><label>Dia da semana</label><select name="weekday">${DAYS_LONG.map((d,i)=>opt(i,d,t.weekday||0)).join('')}</select></div>
    <div class="f"><label>Nota (opcional)</label><textarea name="note" rows="2" maxlength="200">${esc(t.note)}</textarea></div>
-   <div class="row" style="justify-content:flex-end">${id?'<button type="button" class="btn danger" data-act="delTask" data-id="'+id+'" style="margin-right:auto">Apagar</button>':''}
+   <div class="row" style="justify-content:flex-end">${id?'<button type="button" class="btn danger" data-act="delTask" data-id="'+id+'">Apagar</button><button type="button" class="btn" data-act="dupTask" data-id="'+id+'" style="margin-right:auto">Duplicar</button>':''}
    <button type="button" class="btn" data-act="closeDlg">Cancelar</button><button class="btn pri" value="ok">Guardar</button></div></form>`;
   const f=$dlg.querySelector('form'),sync=()=>{const r=f.repeat.value;f.querySelector('[data-for=once]').hidden=r!=='once';f.querySelector('[data-for=wday]').hidden=r!=='wday'};
   f.repeat.onchange=sync;sync();
   f.onsubmit=e=>{e.preventDefault();
-    let w=f.who.value;if(w!=='rota'&&w!=='quartos'&&w!=='todos')w=Number(w);
+    let w=f.who.value;if(!['rota','quartos','todos','rodar'].includes(w))w=Number(w);
     if(w==='rota'&&!COMMON.includes(f.room.value.trim())){alert('A «Rotação da divisão» só existe para Cozinha, Sala e Casa de banho. Escolhe uma pessoa ou «Todos».');return}
     const nt={...t,title:f.title.value.trim(),room:f.room.value.trim(),who:w,repeat:f.repeat.value,note:f.note.value.trim(),date:f.date.value,weekday:Number(f.weekday.value)};
     if(!nt.title)return;
@@ -366,6 +440,19 @@ function openTask(id){
 /* ---------- render / eventos ---------- */
 const $dlg=document.getElementById('dlg'),$main=document.getElementById('main');
 const TABS=[['hoje','☀️','Hoje',viewHoje],['semana','📅','Semana',viewSemana],['rot','🔄','Rotações',viewRot],['tarefas','📝','Tarefas',viewTarefas],['mais','⚙️','Definições',viewMais]];
+let desfazer=null,toastT=null;
+function toast(msg,undo){const t=document.getElementById('toast');desfazer=undo||null;t.innerHTML=`<span>${esc(msg)}</span>${undo?'<button data-act="undo">Desfazer</button>':''}`;t.className='on';clearTimeout(toastT);toastT=setTimeout(()=>{t.className='';desfazer=null},8000)}
+async function procurarAtualizacao(){
+  try{if('serviceWorker'in navigator){for(const r of await navigator.serviceWorker.getRegistrations())await r.unregister()}
+    if(window.caches){for(const k of await caches.keys())await caches.delete(k)}}catch(e){}
+  location.reload();
+}
+function textoSinc(){
+  if(!comRede())return 'Modo local: sem servidor, as alterações ficam só neste aparelho.';
+  if(fila.length)return fila.length+(fila.length===1?' alteração por enviar':' alterações por enviar')+(semRede?' — sem ligação, seguem quando voltar.':'.');
+  if(semRede)return 'Sem ligação ao servidor. A app funciona com o que tem.';
+  return ultimaSync?'Sincronizado '+haQuanto(ultimaSync)+'.':'Ainda não sincronizou.';
+}
 function render(){
   document.getElementById('tabs').innerHTML=TABS.map(([k,i,l])=>`<button data-act="tab" data-t="${k}" ${ui.tab===k?'aria-current="page"':''}><span class="i">${i}</span>${l}</button>`).join('');
   document.getElementById('sub').innerHTML=(ui.tab==='hoje'||ui.tab==='semana')?filterChips():'';
@@ -380,16 +467,26 @@ document.addEventListener('click',e=>{
   else if(a==='wk'){const d=Number(b.dataset.d);ui.week=d===0?mondayOf(today()):addDays(ui.week,7*d);render()}
   else if(a==='toggle'){const k=b.dataset.k;if(S.done[k])delete S.done[k];else S.done[k]=1;save();render();op({op:'marcar',chave:k,valor:!!S.done[k]})}
   else if(a==='days'){const k=b.dataset.dk;ui.dayOpen[k]=!ui.dayOpen[k];render()}
+  else if(a==='sub'){ui.sub=b.dataset.k;render()}
+  else if(a==='room'){ui.room=b.dataset.r;render()}
+  else if(a==='tema'){aplicarTema(b.dataset.k);render()}
+  else if(a==='sincNow'){versaoSrv=-1;sincronizar().then(()=>setTimeout(()=>{if(ui.tab==='mais')renderSeguro()},400))}
+  else if(a==='atualizar')procurarAtualizacao();
+  else if(a==='undo'){const f=desfazer;desfazer=null;document.getElementById('toast').className='';if(f)f()}
+  else if(a==='restaurar'){const faltam=defaultTasks().filter(d=>!S.tasks.some(t=>t.title===d.title&&t.room===d.room));faltam.forEach(t=>{S.tasks.push(t);op({op:'tarefa',tarefa:t})});save();render();toast(faltam.length?faltam.length+(faltam.length===1?' tarefa original restaurada':' tarefas originais restauradas'):'Já tens todas as tarefas originais')}
+  else if(a==='dupTask'){const t=S.tasks.find(x=>x.id===b.dataset.id);if(t){const c={...t,id:uid(),title:(t.title+' (cópia)').slice(0,120)};S.tasks.push(c);save();$dlg.close();render();op({op:'tarefa',tarefa:c});toast('Tarefa duplicada')}}
   else if(a==='new')openTask(null);
   else if(a==='edit')openTask(b.dataset.id);
   else if(a==='closeDlg')$dlg.close();
   else if(a==='toggleActive'){const t=S.tasks.find(x=>x.id===b.dataset.id);t.active=!t.active;save();render();op({op:'tarefa',tarefa:t})}
-  else if(a==='delTask'){if(b.dataset.arm){S.tasks=S.tasks.filter(x=>x.id!==b.dataset.id);save();$dlg.close();render();op({op:'tarefa-apagar',tid:b.dataset.id})}else{b.dataset.arm=1;b.textContent='Confirmar apagar'}}
+  else if(a==='delTask'){if(b.dataset.arm){const t0=S.tasks.find(x=>x.id===b.dataset.id);S.tasks=S.tasks.filter(x=>x.id!==b.dataset.id);save();$dlg.close();render();op({op:'tarefa-apagar',tid:b.dataset.id});toast('Tarefa apagada',()=>{S.tasks.push(t0);save();render();op({op:'tarefa',tarefa:t0})})}else{b.dataset.arm=1;b.textContent='Confirmar apagar'}}
   else if(a==='export'){const blob=new Blob([JSON.stringify(S,null,1)],{type:'application/json'});const u=URL.createObjectURL(blob);const l=document.createElement('a');l.href=u;l.download='tarefas-porto.json';l.click();setTimeout(()=>URL.revokeObjectURL(u),2000)}
   else if(a==='import')document.getElementById('file').click();
-  else if(a==='clearDone'){if(b.dataset.arm){S.done={};save();render();op({op:'limpar'})}else{b.dataset.arm=1;b.textContent='Confirmar?'}}
-  else if(a==='reset'){if(b.dataset.arm){const p=S.people;S=freshState();S.people=p;save();render();op({op:'substituir',estado:estadoLocal()})}else{b.dataset.arm=1;b.textContent='Apagar tudo? Clica de novo'}}
+  else if(a==='clearDone'){if(b.dataset.arm){const prev={...S.done};S.done={};save();render();op({op:'limpar'});toast('Marcações limpas',()=>{S.done=prev;save();render();op({op:'substituir',estado:estadoLocal()})})}else{b.dataset.arm=1;b.textContent='Confirmar?'}}
+  else if(a==='reset'){if(b.dataset.arm){const p=S.people,prev=JSON.parse(JSON.stringify(estadoLocal()));S=freshState();S.people=p;save();render();op({op:'substituir',estado:estadoLocal()});toast('Tudo reposto',()=>{CAMPOS.forEach(c=>{S[c]=prev[c]});save();render();op({op:'substituir',estado:estadoLocal()})})}else{b.dataset.arm=1;b.textContent='Apagar tudo? Clica de novo'}}
 });
+document.addEventListener('input',e=>{if(e.target.dataset&&e.target.dataset.act==='q'){ui.q=e.target.value;const l=document.getElementById('lista');if(l)l.innerHTML=listaHtml()}});
+$dlg.addEventListener('click',e=>{const r=$dlg.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)$dlg.close()});
 document.addEventListener('toggle',e=>{const d=e.target;if(d.classList?.contains('pcard')&&ui.filter===-1)ui.open[d.dataset.p]=d.open},true);
 document.addEventListener('change',e=>{
   const b=e.target,a=b.dataset?.act;if(!a)return;
@@ -463,7 +560,10 @@ function aplicarEstado(st){
 }
 /* ---------- estado partilhado: tarefas, marcações, trocas e definições ---------- */
 const CAMPOS=['tasks','done','ov','anchor','roomsBase','trashOn'];
-let versaoSrv=-1,emVoo=0,sincEmCurso=false,renderPendente=false;
+const QKEY='tarefas-porto-fila';
+let versaoSrv=-1,sincEmCurso=false,renderPendente=false,aEnviar=false,semRede=false,ultimaSync=0;
+let fila=[];try{const q=JSON.parse(localStorage.getItem(QKEY)||'[]');if(Array.isArray(q))fila=q}catch(e){}
+const gravarFila=()=>{try{localStorage.setItem(QKEY,JSON.stringify(fila))}catch(e){}};
 const comRede=()=>/^https?:$/.test(location.protocol);
 const estadoLocal=()=>Object.fromEntries(CAMPOS.map(c=>[c,S[c]]));
 function renderSeguro(){ // não refaz o ecrã enquanto a pessoa escreve num campo
@@ -476,36 +576,50 @@ async function chamarEstado(corpo){
   const r=await fetch('/api/estado',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:idAparelho(),...corpo})});
   return {ok:r.ok,status:r.status,j:await r.json().catch(()=>({}))};
 }
-// A mudança já está no ecrã; isto avisa o servidor. Se algo falhar, o próximo sincronizar() repõe a verdade.
-async function op(corpo){
+// A mudança já está no ecrã. Fica numa fila guardada no aparelho e segue por ordem; sem rede espera.
+function op(corpo){
   if(!comRede()||bloqueado||!idAparelho())return;
-  emVoo++;
+  fila.push(corpo);if(fila.length>500)fila.shift();gravarFila();
+  return esvaziar();
+}
+async function esvaziar(){
+  if(aEnviar||!fila.length)return;
+  aEnviar=true;
   try{
-    const r=await chamarEstado(corpo);
-    if(r.ok&&r.j.versao===versaoSrv+1)versaoSrv=r.j.versao;
-    else{versaoSrv=-1;if(r.status===403)hello()}
-  }catch(e){versaoSrv=-1}
-  finally{emVoo--}
-  if(versaoSrv===-1)sincronizar();
+    while(fila.length){
+      let r;
+      try{r=await chamarEstado(fila[0])}catch(e){semRede=true;break}
+      semRede=false;
+      if(r.ok){fila.shift();versaoSrv=r.j.versao===versaoSrv+1?r.j.versao:-1;gravarFila();continue}
+      if(r.status===403){hello();break}
+      if(r.status===409){fila=[];gravarFila();versaoSrv=-1;break} // servidor sem estado: o sincronizar lança o deste aparelho
+      if(r.status===429||r.status>=500)break; // tenta mais tarde
+      fila.shift();gravarFila(); // pedido recusado por ser inválido: não adianta repetir
+    }
+  }finally{aEnviar=false}
+  if(!fila.length&&versaoSrv===-1)sincronizar();
 }
 async function sincronizar(){
-  if(!comRede()||bloqueado||estadoServ!=='ativo'||emVoo>0||sincEmCurso)return;
+  if(!comRede()||bloqueado||estadoServ!=='ativo'||sincEmCurso||aEnviar)return;
+  if(fila.length){esvaziar();return}
   const id=idAparelho();if(!id)return;
   sincEmCurso=true;
   try{
     const r=await fetch(`/api/estado?id=${encodeURIComponent(id)}&v=${versaoSrv}`,{cache:'no-store'});
+    semRede=false;
     if(r.status===403){hello();return}
     if(!r.ok)return;
     const j=await r.json();
     aplicarPessoas(j.pessoas);
-    if(emVoo>0)return;
+    if(fila.length||aEnviar)return;
+    ultimaSync=Date.now();
     if(j.estado===null){ // servidor vazio: este aparelho lança o estado
       const c=await chamarEstado({op:'iniciar',estado:estadoLocal()});
       versaoSrv=c.ok?c.j.versao:-1;return;
     }
     if(j.igual){versaoSrv=j.versao;return}
     CAMPOS.forEach(c=>{S[c]=j.estado[c]});save();versaoSrv=j.versao;renderSeguro();
-  }catch(e){/* sem rede: fica o que está no aparelho */}
+  }catch(e){semRede=true}
   finally{sincEmCurso=false}
 }
 document.addEventListener('visibilitychange',()=>{
@@ -513,7 +627,7 @@ document.addEventListener('visibilitychange',()=>{
   if(Date.now()-ultimoHello>60000)hello();
   sincronizar();
 });
-setInterval(()=>{if(!document.hidden)sincronizar()},5000);
+setInterval(()=>{if(document.hidden)return;sincronizar();if(++ativTick%2===0&&ui.tab==='tarefas'&&ui.sub==='ativ')carregarAtividade()},5000);
 if(bloqueado)mostrarGate();else{render();hello().then(sincronizar)}
 </script>
 </body>

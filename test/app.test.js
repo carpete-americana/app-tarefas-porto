@@ -120,3 +120,37 @@ test('estado: entradas inválidas e aparelhos sem acesso são recusados', async 
   assert.strictEqual((await get(C, -1)).erro !== undefined, true, 'bloqueado não lê');
   assert.strictEqual((await op(C, { op: 'marcar', chave: 'k', valor: true })).status, 403, 'bloqueado não escreve');
 });
+
+/* ---------- atividade, cópias, cabeçalhos ---------- */
+test('atividade regista quem fez o quê; só aparelhos ativos a leem', async () => {
+  const D = 'ffffffff-1111-2222-3333-444444444444';
+  await adm('/api/admin/aparelho', { id: C, acao: 'desbloquear' });
+  await post('/api/hello', { id: D, pessoa: 'Sofia' });
+  await op(D, { op: 'marcar', chave: 't1|2026-09-29|0|1', valor: true });
+  await op(D, { op: 'tarefa', tarefa: { ...T1, id: 't9', title: 'Estender roupa', who: 'rodar', repeat: 'w1' } });
+  const j = await (await fetch(`${base}/api/atividade?id=${D}`)).json();
+  assert.match(j.itens[0].texto, /criou a tarefa «Estender roupa»/);
+  assert.strictEqual(j.itens[0].quem, 'Sofia');
+  assert.match(j.itens[1].texto, /marcou «Loiça»/);
+  assert.strictEqual((await fetch(`${base}/api/atividade?id=nao-existe-1`)).status, 403);
+  const adminJ = await (await fetch(base + '/api/admin/atividade', { headers: { Cookie: cookie } })).json();
+  assert.ok(adminJ.itens.length >= 2);
+});
+test('cópia diária, exportação do admin e nomes pelo admin', async () => {
+  const fs = require('fs'), path = require('path');
+  const bk = path.join(process.env.DATA_DIR, 'backups');
+  assert.ok(fs.readdirSync(bk).some((f) => /^aparelhos-\d{4}-\d{2}-\d{2}\.json$/.test(f)), 'existe cópia do dia');
+  const r = await fetch(base + '/api/admin/backup', { headers: { Cookie: cookie } });
+  assert.match(r.headers.get('content-disposition'), /attachment; filename="tarefas-porto-/);
+  assert.ok(Array.isArray((await r.json()).historico));
+  assert.strictEqual((await fetch(base + '/api/admin/backup')).status, 401, 'sem sessão não exporta');
+  assert.strictEqual((await adm('/api/admin/pessoas', { pessoas: ['A', '', 'C'] })).status, 400);
+  const ok = await (await adm('/api/admin/pessoas', { pessoas: ['Ana', 'Bea', 'Carlos'] })).json();
+  assert.deepStrictEqual(ok.pessoas, ['Ana', 'Bea', 'Carlos']);
+  assert.deepStrictEqual((await get(A, -1)).pessoas, ['Ana', 'Bea', 'Carlos']);
+});
+test('cabeçalhos de segurança e /api/saude', async () => {
+  const h = await fetch(base + '/');
+  assert.match(h.headers.get('content-security-policy'), /frame-ancestors 'none'/);
+  assert.strictEqual((await (await fetch(base + '/api/saude')).json()).ok, true);
+});

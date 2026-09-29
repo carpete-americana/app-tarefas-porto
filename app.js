@@ -8,10 +8,13 @@ const crypto = require('crypto');
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const FICHEIRO_DADOS = path.join(DATA_DIR, 'aparelhos.json');
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
+const BACKUPS_DIR = path.join(DATA_DIR, 'backups');
 const MAX_APARELHOS = 1000;
+const MAX_HISTORICO = 200;
 const SESSAO_MS = 12 * 3600e3;
 
 const HTML = 'text/html; charset=utf-8';
+const CSP = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; manifest-src 'self'; worker-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 const PNG = 'image/png';
 // Lista fechada: só estes caminhos existem.
 const FICHEIROS = {
@@ -27,13 +30,14 @@ const FICHEIROS = {
 
 /* ---------- dados ---------- */
 const PESSOAS_BASE = ['Sofia', 'Leonor', 'Francisco'];
-let db = { config: { aprovacao: false }, aparelhos: {}, pessoas: PESSOAS_BASE.slice(), estado: null, versao: 0 };
+let db = { config: { aprovacao: false }, aparelhos: {}, pessoas: PESSOAS_BASE.slice(), estado: null, versao: 0, historico: [] };
 let estadoCru = null;
 try {
   const j = JSON.parse(fs.readFileSync(FICHEIRO_DADOS, 'utf8'));
   if (j && typeof j === 'object') {
     db = { config: { aprovacao: !!(j.config && j.config.aprovacao) }, aparelhos: j.aparelhos && typeof j.aparelhos === 'object' ? j.aparelhos : {},
-      pessoas: Array.isArray(j.pessoas) && j.pessoas.length === 3 ? j.pessoas.map((n, i) => String(n).slice(0, 20) || PESSOAS_BASE[i]) : PESSOAS_BASE.slice(), estado: null, versao: Number.isInteger(j.versao) ? j.versao : 0 };
+      pessoas: Array.isArray(j.pessoas) && j.pessoas.length === 3 ? j.pessoas.map((n, i) => String(n).slice(0, 20) || PESSOAS_BASE[i]) : PESSOAS_BASE.slice(), estado: null, versao: Number.isInteger(j.versao) ? j.versao : 0,
+      historico: Array.isArray(j.historico) ? j.historico.filter((h) => h && typeof h.t === 'number' && typeof h.texto === 'string').slice(0, MAX_HISTORICO) : [] };
     estadoCru = j.estado;
   }
 } catch (e) { /* primeira execução */ }
@@ -43,6 +47,17 @@ function gravar() {
   const tmp = FICHEIRO_DADOS + '.tmp';
   fs.writeFileSync(tmp, JSON.stringify(db));
   fs.renameSync(tmp, FICHEIRO_DADOS);
+  copiaDiaria();
+}
+
+// Tudo vive neste ficheiro: guarda uma cópia por dia (a última do dia) e mantém as 14 mais recentes.
+function copiaDiaria() {
+  try {
+    fs.mkdirSync(BACKUPS_DIR, { recursive: true });
+    fs.copyFileSync(FICHEIRO_DADOS, path.join(BACKUPS_DIR, `aparelhos-${new Date().toISOString().slice(0, 10)}.json`));
+    const todas = fs.readdirSync(BACKUPS_DIR).filter((f) => /^aparelhos-\d{4}-\d{2}-\d{2}\.json$/.test(f)).sort();
+    for (const f of todas.slice(0, Math.max(0, todas.length - 14))) fs.unlinkSync(path.join(BACKUPS_DIR, f));
+  } catch (e) { /* a cópia nunca pode impedir a gravação */ }
 }
 
 /* ---------- utilitários ---------- */
@@ -75,6 +90,12 @@ function excede(chave, max, janelaMs, conta = true) {
 function json(res, codigo, corpo, extra = {}) {
   res.writeHead(codigo, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', ...extra });
   res.end(JSON.stringify(corpo));
+}
+
+function registar(aparelho, texto) {
+  const quem = (aparelho && (aparelho.etiqueta || aparelho.pessoa)) || 'Alguém';
+  db.historico.unshift({ t: Date.now(), quem, texto: limpa(texto, 160) });
+  if (db.historico.length > MAX_HISTORICO) db.historico.length = MAX_HISTORICO;
 }
 
 function lerCorpo(req, max = 4096) {
@@ -134,13 +155,14 @@ async function mudarPessoa(req, res) {
   if (!a || a.status !== 'ativo') return json(res, 403, { erro: 'Aparelho sem acesso.' });
   const nome = limpa(b.nome, 20);
   if (!Number.isInteger(b.i) || b.i < 0 || b.i > 2 || !nome) return json(res, 400, { erro: 'Nome inválido.' });
+  registar(a, `mudou o nome da pessoa ${b.i + 1} para «${nome}»`);
   db.pessoas[b.i] = nome; db.versao++; gravar();
   json(res, 200, { pessoas: db.pessoas, versao: db.versao });
 }
 
 /* ---------- API pública: estado partilhado (tarefas, marcações, trocas, definições) ---------- */
 const REPETICOES = ['daily', 'w2', 'w1', 'need', 'wday', 'once'];
-const QUEM = ['rota', 'quartos', 'todos', 0, 1, 2];
+const QUEM = ['rota', 'quartos', 'todos', 'rodar', 0, 1, 2];
 const DATA_ISO = /^\d{4}-\d{2}-\d{2}$/;
 const MES_ISO = /^\d{4}-\d{2}$/;
 
@@ -192,28 +214,38 @@ async function estadoApi(req, res) {
     if (!db.estado) return json(res, 200, { ...base, estado: null });
     return json(res, 200, b.v === db.versao ? { ...base, igual: true } : { ...base, estado: db.estado });
   }
+  const titulo = (e, id) => (id === 'lixo' ? 'Levar o lixo' : ((e && e.tasks.find((t) => t.id === id)) || {}).title || 'tarefa');
   if (b.op === 'iniciar' || b.op === 'substituir') {
     if (b.op === 'iniciar' && db.estado) return json(res, 409, { ...base, erro: 'Já existe estado.' });
     const novo = estadoLimpo(b.estado);
     if (!novo) return json(res, 400, { erro: 'Estado inválido.' });
     db.estado = novo;
+    registar(a, b.op === 'iniciar' ? 'lançou os dados iniciais' : 'substituiu todos os dados');
   } else {
     const e = db.estado;
     if (!e) return json(res, 409, { ...base, erro: 'Sem estado.' });
     if (b.op === 'marcar' && typeof b.chave === 'string' && b.chave && b.chave.length <= 200 && typeof b.valor === 'boolean') {
       if (b.valor) e.done[b.chave] = 1; else delete e.done[b.chave];
       podarMarcacoes();
-    } else if (b.op === 'limpar') e.done = {};
+      registar(a, `${b.valor ? 'marcou' : 'desmarcou'} «${titulo(e, b.chave.split('|')[0])}»`);
+    } else if (b.op === 'limpar') { e.done = {}; registar(a, 'limpou todas as marcações'); }
     else if (b.op === 'troca' && typeof b.chave === 'string' && b.chave && b.chave.length <= 100 && (b.valor === null || (Number.isInteger(b.valor) && b.valor >= 0 && b.valor <= 2))) {
       if (b.valor === null) delete e.ov[b.chave]; else e.ov[b.chave] = b.valor;
+      const alvo = b.chave.startsWith('lixo|') ? 'o lixo de ' + b.chave.slice(5) : b.chave.split('|')[1];
+      registar(a, b.valor === null ? `repôs o responsável de ${alvo}` : `passou ${alvo} para ${db.pessoas[b.valor]}`);
     } else if (b.op === 'tarefa') {
       const t = tarefaLimpa(b.tarefa);
       if (!t) return json(res, 400, { erro: 'Tarefa inválida.' });
       const i = e.tasks.findIndex((x) => x.id === t.id);
       if (i >= 0) e.tasks[i] = t; else if (e.tasks.length >= 200) return json(res, 400, { erro: 'Demasiadas tarefas.' }); else e.tasks.push(t);
-    } else if (b.op === 'tarefa-apagar' && typeof b.tid === 'string') e.tasks = e.tasks.filter((x) => x.id !== b.tid);
-    else if (b.op === 'cfg' && ((b.campo === 'anchor' && DATA_ISO.test(b.valor || '')) || (b.campo === 'roomsBase' && MES_ISO.test(b.valor || '')) || (b.campo === 'trashOn' && typeof b.valor === 'boolean'))) e[b.campo] = b.valor;
-    else return json(res, 400, { erro: 'Operação inválida.' });
+      registar(a, `${i >= 0 ? 'editou' : 'criou'} a tarefa «${t.title}»`);
+    } else if (b.op === 'tarefa-apagar' && typeof b.tid === 'string') {
+      registar(a, `apagou a tarefa «${titulo(e, b.tid)}»`);
+      e.tasks = e.tasks.filter((x) => x.id !== b.tid);
+    } else if (b.op === 'cfg' && ((b.campo === 'anchor' && DATA_ISO.test(b.valor || '')) || (b.campo === 'roomsBase' && MES_ISO.test(b.valor || '')) || (b.campo === 'trashOn' && typeof b.valor === 'boolean'))) {
+      e[b.campo] = b.valor;
+      registar(a, { anchor: `mudou a Semana 1 para ${b.valor}`, roomsBase: `mudou o mês de partida dos quartos para ${b.valor}`, trashOn: b.valor ? 'ligou o lixo' : 'desligou o lixo' }[b.campo]);
+    } else return json(res, 400, { erro: 'Operação inválida.' });
   }
   db.versao++; gravar();
   json(res, 200, { versao: db.versao });
@@ -243,9 +275,20 @@ async function admin(req, res, rota) {
     return json(res, 200, { ok: true }, { 'Set-Cookie': 'tp_admin=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0' });
   }
   if (rota === '/api/admin/dados' && req.method === 'GET') {
-    return json(res, 200, { agora: Date.now(), config: db.config, aparelhos: Object.values(db.aparelhos).sort((x, y) => y.ultimo - x.ultimo) });
+    return json(res, 200, { agora: Date.now(), config: db.config, pessoas: db.pessoas, aparelhos: Object.values(db.aparelhos).sort((x, y) => y.ultimo - x.ultimo) });
+  }
+  if (rota === '/api/admin/atividade' && req.method === 'GET') return json(res, 200, { itens: db.historico });
+  if (rota === '/api/admin/backup' && req.method === 'GET') {
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'Content-Disposition': `attachment; filename="tarefas-porto-${new Date().toISOString().slice(0, 10)}.json"` });
+    return res.end(JSON.stringify(db, null, 1));
   }
   let b; try { b = await lerCorpo(req); } catch (e) { return json(res, 400, { erro: 'Pedido inválido.' }); }
+  if (rota === '/api/admin/pessoas' && req.method === 'POST') {
+    const nomes = Array.isArray(b.pessoas) ? b.pessoas.map((n) => limpa(n, 20)) : [];
+    if (nomes.length !== 3 || nomes.some((n) => !n)) return json(res, 400, { erro: 'Indica os 3 nomes.' });
+    db.pessoas = nomes; db.versao++; registar({ etiqueta: 'Admin' }, 'mudou os nomes das pessoas'); gravar();
+    return json(res, 200, { pessoas: db.pessoas });
+  }
   if (rota === '/api/admin/config' && req.method === 'POST') {
     db.config.aprovacao = b.aprovacao === true; gravar();
     return json(res, 200, { config: db.config });
@@ -268,6 +311,13 @@ async function admin(req, res, rota) {
 const servidor = http.createServer((req, res) => {
   const caminho = req.url.split('?')[0];
   if (caminho === '/api/hello' && req.method === 'POST') return hello(req, res).catch(() => json(res, 500, { erro: 'Erro interno.' }));
+  if (caminho === '/api/saude' && req.method === 'GET') return json(res, 200, { ok: true, versao: db.versao, aparelhos: Object.keys(db.aparelhos).length });
+  if (caminho === '/api/atividade' && req.method === 'GET') {
+    if (excede('atividade:' + ipDe(req), 120, 60e3)) return json(res, 429, { erro: 'Demasiados pedidos.' });
+    const a = db.aparelhos[new URL(req.url, 'http://x').searchParams.get('id')];
+    if (!a || a.status !== 'ativo') return json(res, 403, { erro: 'Aparelho sem acesso.' });
+    return json(res, 200, { itens: db.historico.slice(0, 100) });
+  }
   if (caminho === '/api/estado' && ['GET', 'POST'].includes(req.method)) return estadoApi(req, res).catch(() => json(res, 500, { erro: 'Erro interno.' }));
   if (caminho === '/api/pessoas' && req.method === 'POST') return mudarPessoa(req, res).catch(() => json(res, 500, { erro: 'Erro interno.' }));
   if (caminho.startsWith('/api/admin/')) return admin(req, res, caminho).catch(() => json(res, 500, { erro: 'Erro interno.' }));
@@ -288,6 +338,7 @@ const servidor = http.createServer((req, res) => {
       'Cache-Control': entrada[1] === PNG ? 'public, max-age=86400' : 'no-cache',
       'X-Content-Type-Options': 'nosniff',
       'Referrer-Policy': 'no-referrer',
+      ...(entrada[1] === HTML ? { 'Content-Security-Policy': CSP } : {}),
       ...(caminho === '/admin' ? { 'X-Robots-Tag': 'noindex, nofollow', 'X-Frame-Options': 'DENY' } : {}),
     });
     res.end(req.method === 'HEAD' ? undefined : conteudo);

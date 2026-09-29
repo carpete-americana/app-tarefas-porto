@@ -357,7 +357,7 @@ function subStats(){
   const sem=[0,1,2,3].map(i=>{const mon=addDays(mon0,-7*i),occ=genWeek(mon);return {i,mon,occ,ok:mon>=a0,pp:S.people.map((n,p)=>progress(occ.filter(o=>o.p===p)))}});
   const tot=S.people.map((n,p)=>{let d=0,nn=0;sem.filter(x=>x.ok).forEach(x=>{d+=x.pp[p].d;nn+=x.pp[p].n});return {d,n:nn,pct:nn?Math.round(d/nn*100):0}});
   const cards=S.people.map((n,p)=>`<div class="card" style="border-top:4px solid ${PCOL(p)}"><div class="row"><h3 class="grow" style="margin:0"><span class="dot" style="background:${PCOL(p)}"></span>${esc(n)}</h3><b>${tot[p].n?tot[p].pct+'%':'—'}</b></div>${bar(tot[p])}
-    <p class="muted" style="margin:8px 0 4px">Últimas 4 semanas · ${tot[p].d}/${tot[p].n}</p>
+    <p class="muted" style="margin:8px 0 4px">Últimas 4 semanas · ${tot[p].d}/${tot[p].n}${tot[p].n?' · <b>'+fraseNota(tot[p].pct)+'</b>':''}</p>
     ${sem.map(x=>`<div class="row" style="justify-content:space-between;padding:3px 0;font-size:14px"><span>${dm(x.mon)} – ${dm(addDays(x.mon,6))}${x.i===0?' <span class="tag">atual</span>':''}</span><span>${x.ok?x.pp[p].d+'/'+x.pp[p].n:'—'}</span></div>`).join('')}</div>`).join('');
   const tarde=[],diarias=S.people.map(()=>0);
   sem.filter(x=>x.ok).forEach(x=>x.occ.forEach(o=>{
@@ -368,9 +368,10 @@ function subStats(){
   }));
   return `<div class="grid3">${cards}</div>
    <p class="muted" style="margin:-2px 2px 12px">A percentagem conta as tarefas atribuídas a cada pessoa (com trocas incluídas). A semana atual ainda tem dias por vir.</p>
-   <div class="card"><h3>Em atraso</h3>${tarde.length?tarde.slice(0,40).map(o=>itemRow(o,{showPerson:true,showDay:true})).join('')+(tarde.length>40?`<p class="muted">E mais ${tarde.length-40}…</p>`:''):'<div class="empty" style="padding:14px">Nada em atraso 🎉</div>'}
+   <div class="card"><h3>Em atraso</h3>${tarde.length?tarde.slice(0,40).map(o=>itemRow(o,{showPerson:true,showDay:true})).join('')+(tarde.length>40?`<p class="muted">E mais ${tarde.length-40}…</p>`:''):'<div class="empty" style="padding:14px">Nada em atraso. Casa a brilhar ✨🎉</div>'}
    <p class="muted" style="margin:8px 0 0">${diarias.some(n=>n)?'Diárias por marcar: '+S.people.map((n,p)=>diarias[p]?esc(n)+' '+diarias[p]:'').filter(Boolean).join(' · ')+'. ':''}Só entram semanas desde a «Semana 1» das Definições.</p></div>`;
 }
+const fraseNota=p=>p>=90?'Máquina de limpar 🏆':p>=70?'Ritmo de campeão 💪':p>=40?'Vai andando, vai andando 🚶':p>=15?'A aquecer os motores 🔥':'Precisa de café ☕';
 let ativTick=0;
 async function carregarAtividade(){
   const id=idAparelho();
@@ -383,7 +384,7 @@ async function carregarAtividade(){
 }
 function subAtiv(){
   if(ui.ativ===null){carregarAtividade();return '<div class="empty">A carregar…</div>'}
-  return `<div class="card ativ"><h3>Atividade recente</h3>`+(ui.ativ.length?ui.ativ.map(h=>`<div class="item"><div class="grow"><span class="t"><span class="quem">${esc(h.quem)}</span> ${esc(h.texto)}</span><span class="s">${haQuanto(h.t)}</span></div></div>`).join(''):'<div class="empty" style="padding:14px">Ainda não há atividade (ou sem ligação ao servidor).</div>')+'</div>';
+  return `<div class="card ativ"><h3>Atividade recente</h3>`+(ui.ativ.length?ui.ativ.map(h=>`<div class="item"><div class="grow"><span class="t"><span class="quem">${esc(h.quem)}</span> ${esc(h.texto)}</span><span class="s">${haQuanto(h.t)}</span></div></div>`).join(''):'<div class="empty" style="padding:14px">Silêncio total 🦗 Alguém tem de fazer alguma coisa! (ou estás sem ligação ao servidor)</div>')+'</div>';
 }
 function viewTarefas(){
   const seg=`<div class="seg" role="tablist">${[['lista','Tarefas'],['stats','Estatísticas'],['ativ','Atividade']].map(([k,l])=>`<button role="tab" aria-selected="${ui.sub===k}" data-act="sub" data-k="${k}">${l}</button>`).join('')}</div>`;
@@ -407,7 +408,7 @@ function viewMais(){
    <li><b>Rotações</b>: quem faz cada divisão, os quartos do mês e o lixo.</li>
    <li><b>Tarefas</b>: cria, edita ou pausa tarefas; vê estatísticas e a atividade recente.</li>
    <li>Tudo é partilhado: o que uma pessoa marca aparece aos outros em poucos segundos. Sem rede, as alterações ficam guardadas e seguem quando voltar a ligação.</li></ul></details>
-  <div class="card"><h2>Sobre</h2><p class="muted" style="margin:0 0 10px">Tarefas Porto · versão ${VERSAO}</p><button class="btn" data-act="atualizar">Procurar atualização</button></div>`;
+  <div class="card"><h2>Sobre</h2><p class="muted" style="margin:0 0 10px">Tarefas Porto · versão ${VERSAO} · sem bugs conhecidos (os desconhecidos estão a esconder-se) 🐛</p><button class="btn" data-act="atualizar">Procurar atualização</button></div>`;
 }
 
 /* ---------- diálogo de tarefa ---------- */
@@ -451,7 +452,7 @@ function textoSinc(){
   if(!comRede())return 'Modo local: sem servidor, as alterações ficam só neste aparelho.';
   if(fila.length)return fila.length+(fila.length===1?' alteração por enviar':' alterações por enviar')+(semRede?' — sem ligação, seguem quando voltar.':'.');
   if(semRede)return 'Sem ligação ao servidor. A app funciona com o que tem.';
-  return ultimaSync?'Sincronizado '+haQuanto(ultimaSync)+'.':'Ainda não sincronizou.';
+  return ultimaSync?'Sincronizado '+haQuanto(ultimaSync)+' ✨':'Ainda não sincronizou.';
 }
 function render(){
   document.getElementById('tabs').innerHTML=TABS.map(([k,i,l])=>`<button data-act="tab" data-t="${k}" ${ui.tab===k?'aria-current="page"':''}><span class="i">${i}</span>${l}</button>`).join('');
@@ -473,17 +474,17 @@ document.addEventListener('click',e=>{
   else if(a==='sincNow'){versaoSrv=-1;sincronizar().then(()=>setTimeout(()=>{if(ui.tab==='mais')renderSeguro()},400))}
   else if(a==='atualizar')procurarAtualizacao();
   else if(a==='undo'){const f=desfazer;desfazer=null;document.getElementById('toast').className='';if(f)f()}
-  else if(a==='restaurar'){const faltam=defaultTasks().filter(d=>!S.tasks.some(t=>t.title===d.title&&t.room===d.room));faltam.forEach(t=>{S.tasks.push(t);op({op:'tarefa',tarefa:t})});save();render();toast(faltam.length?faltam.length+(faltam.length===1?' tarefa original restaurada':' tarefas originais restauradas'):'Já tens todas as tarefas originais')}
-  else if(a==='dupTask'){const t=S.tasks.find(x=>x.id===b.dataset.id);if(t){const c={...t,id:uid(),title:(t.title+' (cópia)').slice(0,120)};S.tasks.push(c);save();$dlg.close();render();op({op:'tarefa',tarefa:c});toast('Tarefa duplicada')}}
+  else if(a==='restaurar'){const faltam=defaultTasks().filter(d=>!S.tasks.some(t=>t.title===d.title&&t.room===d.room));faltam.forEach(t=>{S.tasks.push(t);op({op:'tarefa',tarefa:t})});save();render();toast(faltam.length?faltam.length+(faltam.length===1?' tarefa original de volta 🎩':' tarefas originais de volta 🎩'):'Já tens todas as originais. Nada a restaurar! 🙌')}
+  else if(a==='dupTask'){const t=S.tasks.find(x=>x.id===b.dataset.id);if(t){const c={...t,id:uid(),title:(t.title+' (cópia)').slice(0,120)};S.tasks.push(c);save();$dlg.close();render();op({op:'tarefa',tarefa:c});toast('Tarefa duplicada — agora há duas 👯')}}
   else if(a==='new')openTask(null);
   else if(a==='edit')openTask(b.dataset.id);
   else if(a==='closeDlg')$dlg.close();
   else if(a==='toggleActive'){const t=S.tasks.find(x=>x.id===b.dataset.id);t.active=!t.active;save();render();op({op:'tarefa',tarefa:t})}
-  else if(a==='delTask'){if(b.dataset.arm){const t0=S.tasks.find(x=>x.id===b.dataset.id);S.tasks=S.tasks.filter(x=>x.id!==b.dataset.id);save();$dlg.close();render();op({op:'tarefa-apagar',tid:b.dataset.id});toast('Tarefa apagada',()=>{S.tasks.push(t0);save();render();op({op:'tarefa',tarefa:t0})})}else{b.dataset.arm=1;b.textContent='Confirmar apagar'}}
+  else if(a==='delTask'){if(b.dataset.arm){const t0=S.tasks.find(x=>x.id===b.dataset.id);S.tasks=S.tasks.filter(x=>x.id!==b.dataset.id);save();$dlg.close();render();op({op:'tarefa-apagar',tid:b.dataset.id});toast('Tarefa apagada — adeus, até nunca 👋',()=>{S.tasks.push(t0);save();render();op({op:'tarefa',tarefa:t0})})}else{b.dataset.arm=1;b.textContent='Confirmar apagar'}}
   else if(a==='export'){const blob=new Blob([JSON.stringify(S,null,1)],{type:'application/json'});const u=URL.createObjectURL(blob);const l=document.createElement('a');l.href=u;l.download='tarefas-porto.json';l.click();setTimeout(()=>URL.revokeObjectURL(u),2000)}
   else if(a==='import')document.getElementById('file').click();
-  else if(a==='clearDone'){if(b.dataset.arm){const prev={...S.done};S.done={};save();render();op({op:'limpar'});toast('Marcações limpas',()=>{S.done=prev;save();render();op({op:'substituir',estado:estadoLocal()})})}else{b.dataset.arm=1;b.textContent='Confirmar?'}}
-  else if(a==='reset'){if(b.dataset.arm){const p=S.people,prev=JSON.parse(JSON.stringify(estadoLocal()));S=freshState();S.people=p;save();render();op({op:'substituir',estado:estadoLocal()});toast('Tudo reposto',()=>{CAMPOS.forEach(c=>{S[c]=prev[c]});save();render();op({op:'substituir',estado:estadoLocal()})})}else{b.dataset.arm=1;b.textContent='Apagar tudo? Clica de novo'}}
+  else if(a==='clearDone'){if(b.dataset.arm){const prev={...S.done};S.done={};save();render();op({op:'limpar'});toast('Marcações limpas — folha em branco ✨',()=>{S.done=prev;save();render();op({op:'substituir',estado:estadoLocal()})})}else{b.dataset.arm=1;b.textContent='Confirmar?'}}
+  else if(a==='reset'){if(b.dataset.arm){const p=S.people,prev=JSON.parse(JSON.stringify(estadoLocal()));S=freshState();S.people=p;save();render();op({op:'substituir',estado:estadoLocal()});toast('Tudo reposto — como se nada fosse 🧼',()=>{CAMPOS.forEach(c=>{S[c]=prev[c]});save();render();op({op:'substituir',estado:estadoLocal()})})}else{b.dataset.arm=1;b.textContent='Apagar tudo? Clica de novo'}}
 });
 document.addEventListener('input',e=>{if(e.target.dataset&&e.target.dataset.act==='q'){ui.q=e.target.value;const l=document.getElementById('lista');if(l)l.innerHTML=listaHtml()}});
 $dlg.addEventListener('click',e=>{const r=$dlg.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)$dlg.close()});

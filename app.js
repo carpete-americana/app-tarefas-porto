@@ -92,9 +92,25 @@ function json(res, codigo, corpo, extra = {}) {
   res.end(JSON.stringify(corpo));
 }
 
-function registar(aparelho, texto) {
+// Cada tipo de ação tem uns remates para o feed de atividade não ser sempre igual (a frase factual vem primeiro).
+const GRACAS = {
+  marcou: ['despachado! 💪', 'que rapidez ⚡', 'ponto para o Porto 🏅', 'sem ninguém pedir (milagre) ✨', 'riscado da lista ✅'],
+  desmarcou: ['afinal ainda não estava… 🤨', 'dúvidas existenciais 🤔', 'voltou atrás, acontece', 'a vida dá segundas oportunidades'],
+  criou: ['mais trabalho para toda a gente 😅', 'boa sorte, malta 🍀', 'ninguém pediu, mas cá está', 'a lista agradece (ou não)'],
+  editou: ['ficou melhor, dizem ✨', 'retoques finais 🎨', 'só mais um bocadinho'],
+  apagou: ['já ninguém se lembra 🕊️', 'adeus, até nunca 👋', 'mandada para o lixo (o outro, não o de segunda) 🗑️'],
+  troca: ['boa sorte 😈', 'as trocas fazem-se 🤝', 'negócio fechado'],
+  lixo: ['o cheiro agradece 🌸', 'vamos ver quanto tempo aguenta 🙈'],
+  limpar: ['folha em branco, respira fundo 🧼', 'como se nada fosse 🫧'],
+  inicio: ['que comecem os jogos! 🎬', 'e pronto, está tudo a andar 🚀'],
+  nome: ['crise de identidade? 🎭', 'novo nome, mesma tarefa 😎'],
+  config: ['ajustes finos 🔧', 'a engenharia é uma arte 🛠️'],
+};
+const escolhe = (l) => l[Math.floor(Math.random() * l.length)];
+function registar(aparelho, texto, tipo) {
   const quem = (aparelho && (aparelho.etiqueta || aparelho.pessoa)) || 'Alguém';
-  db.historico.unshift({ t: Date.now(), quem, texto: limpa(texto, 160) });
+  if (tipo && GRACAS[tipo]) texto += ' — ' + escolhe(GRACAS[tipo]);
+  db.historico.unshift({ t: Date.now(), quem, texto: limpa(texto, 220) });
   if (db.historico.length > MAX_HISTORICO) db.historico.length = MAX_HISTORICO;
 }
 
@@ -155,7 +171,7 @@ async function mudarPessoa(req, res) {
   if (!a || a.status !== 'ativo') return json(res, 403, { erro: 'Aparelho sem acesso.' });
   const nome = limpa(b.nome, 20);
   if (!Number.isInteger(b.i) || b.i < 0 || b.i > 2 || !nome) return json(res, 400, { erro: 'Nome inválido.' });
-  registar(a, `mudou o nome da pessoa ${b.i + 1} para «${nome}»`);
+  registar(a, `mudou o nome da pessoa ${b.i + 1} para «${nome}»`, 'nome');
   db.pessoas[b.i] = nome; db.versao++; gravar();
   json(res, 200, { pessoas: db.pessoas, versao: db.versao });
 }
@@ -220,31 +236,31 @@ async function estadoApi(req, res) {
     const novo = estadoLimpo(b.estado);
     if (!novo) return json(res, 400, { erro: 'Estado inválido.' });
     db.estado = novo;
-    registar(a, b.op === 'iniciar' ? 'lançou os dados iniciais' : 'substituiu todos os dados');
+    registar(a, b.op === 'iniciar' ? 'lançou os dados iniciais' : 'substituiu todos os dados', 'inicio');
   } else {
     const e = db.estado;
     if (!e) return json(res, 409, { ...base, erro: 'Sem estado.' });
     if (b.op === 'marcar' && typeof b.chave === 'string' && b.chave && b.chave.length <= 200 && typeof b.valor === 'boolean') {
       if (b.valor) e.done[b.chave] = 1; else delete e.done[b.chave];
       podarMarcacoes();
-      registar(a, `${b.valor ? 'marcou' : 'desmarcou'} «${titulo(e, b.chave.split('|')[0])}»`);
-    } else if (b.op === 'limpar') { e.done = {}; registar(a, 'limpou todas as marcações'); }
+      registar(a, `${b.valor ? 'marcou' : 'desmarcou'} «${titulo(e, b.chave.split('|')[0])}»`, b.valor ? 'marcou' : 'desmarcou');
+    } else if (b.op === 'limpar') { e.done = {}; registar(a, 'limpou todas as marcações', 'limpar'); }
     else if (b.op === 'troca' && typeof b.chave === 'string' && b.chave && b.chave.length <= 100 && (b.valor === null || (Number.isInteger(b.valor) && b.valor >= 0 && b.valor <= 2))) {
       if (b.valor === null) delete e.ov[b.chave]; else e.ov[b.chave] = b.valor;
       const alvo = b.chave.startsWith('lixo|') ? 'o lixo de ' + b.chave.slice(5) : b.chave.split('|')[1];
-      registar(a, b.valor === null ? `repôs o responsável de ${alvo}` : `passou ${alvo} para ${db.pessoas[b.valor]}`);
+      registar(a, b.valor === null ? `repôs o responsável de ${alvo}` : `passou ${alvo} para ${db.pessoas[b.valor]}`, 'troca');
     } else if (b.op === 'tarefa') {
       const t = tarefaLimpa(b.tarefa);
       if (!t) return json(res, 400, { erro: 'Tarefa inválida.' });
       const i = e.tasks.findIndex((x) => x.id === t.id);
       if (i >= 0) e.tasks[i] = t; else if (e.tasks.length >= 200) return json(res, 400, { erro: 'Demasiadas tarefas.' }); else e.tasks.push(t);
-      registar(a, `${i >= 0 ? 'editou' : 'criou'} a tarefa «${t.title}»`);
+      registar(a, `${i >= 0 ? 'editou' : 'criou'} a tarefa «${t.title}»`, i >= 0 ? 'editou' : 'criou');
     } else if (b.op === 'tarefa-apagar' && typeof b.tid === 'string') {
-      registar(a, `apagou a tarefa «${titulo(e, b.tid)}»`);
+      registar(a, `apagou a tarefa «${titulo(e, b.tid)}»`, 'apagou');
       e.tasks = e.tasks.filter((x) => x.id !== b.tid);
     } else if (b.op === 'cfg' && ((b.campo === 'anchor' && DATA_ISO.test(b.valor || '')) || (b.campo === 'roomsBase' && MES_ISO.test(b.valor || '')) || (b.campo === 'trashOn' && typeof b.valor === 'boolean'))) {
       e[b.campo] = b.valor;
-      registar(a, { anchor: `mudou a Semana 1 para ${b.valor}`, roomsBase: `mudou o mês de partida dos quartos para ${b.valor}`, trashOn: b.valor ? 'ligou o lixo' : 'desligou o lixo' }[b.campo]);
+      registar(a, { anchor: `mudou a Semana 1 para ${b.valor}`, roomsBase: `mudou o mês de partida dos quartos para ${b.valor}`, trashOn: b.valor ? 'ligou o lixo' : 'desligou o lixo' }[b.campo], b.campo === 'trashOn' ? 'lixo' : 'config');
     } else return json(res, 400, { erro: 'Operação inválida.' });
   }
   db.versao++; gravar();

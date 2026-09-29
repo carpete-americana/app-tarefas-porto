@@ -131,7 +131,7 @@ test('atividade regista quem fez o quê; só aparelhos ativos a leem', async () 
   const j = await (await fetch(`${base}/api/atividade?id=${D}`)).json();
   assert.match(j.itens[0].texto, /criou a tarefa «Estender roupa»/);
   assert.strictEqual(j.itens[0].quem, 'Sofia');
-  assert.match(j.itens[1].texto, /marcou «Loiça»/);
+  assert.match(j.itens[1].texto, /marcou «Loiça» — .+/, 'frase factual + remate');
   assert.strictEqual((await fetch(`${base}/api/atividade?id=nao-existe-1`)).status, 403);
   const adminJ = await (await fetch(base + '/api/admin/atividade', { headers: { Cookie: cookie } })).json();
   assert.ok(adminJ.itens.length >= 2);

@@ -17,7 +17,7 @@ const dados = async () => (await fetch(base + '/api/admin/dados', { headers: { C
 
 test('aparelho novo fica ativo e aparece no admin', async () => {
   const r = await post('/api/hello', { id: ID1, pessoa: 'Leonor', instalada: true });
-  assert.deepStrictEqual(await r.json(), { status: 'ativo' });
+  assert.strictEqual((await r.json()).status, 'ativo');
 });
 test('id inválido é recusado', async () => { assert.strictEqual((await post('/api/hello', { id: '<x>' })).status, 400); });
 test('admin recusa sem sessão e com palavra-passe errada', async () => {
@@ -34,13 +34,13 @@ test('login, listar, bloquear, aprovação', async () => {
   assert.strictEqual(d.aparelhos[0].pessoa, 'Leonor');
   assert.strictEqual((await post('/api/admin/aparelho', { id: ID1, acao: 'bloquear' }, { Cookie: cookie })).status, 403, 'sem X-Requested-With');
   await adm('/api/admin/aparelho', { id: ID1, acao: 'bloquear' });
-  assert.deepStrictEqual(await (await post('/api/hello', { id: ID1 })).json(), { status: 'bloqueado' });
+  assert.strictEqual((await (await post('/api/hello', { id: ID1 })).json()).status, 'bloqueado');
   await adm('/api/admin/aparelho', { id: ID1, acao: 'desbloquear' });
   await adm('/api/admin/config', { aprovacao: true });
-  assert.deepStrictEqual(await (await post('/api/hello', { id: 'bbbbbbbb-1111-2222-3333-444444444444' })).json(), { status: 'pendente' });
-  assert.deepStrictEqual(await (await post('/api/hello', { id: ID1 })).json(), { status: 'ativo' }, 'os existentes não são afetados');
+  assert.strictEqual((await (await post('/api/hello', { id: 'bbbbbbbb-1111-2222-3333-444444444444' })).json()).status, 'pendente');
+  assert.strictEqual((await (await post('/api/hello', { id: ID1 })).json()).status, 'ativo', 'os existentes não são afetados');
   await adm('/api/admin/aparelho', { id: 'bbbbbbbb-1111-2222-3333-444444444444', acao: 'aprovar' });
-  assert.deepStrictEqual(await (await post('/api/hello', { id: 'bbbbbbbb-1111-2222-3333-444444444444' })).json(), { status: 'ativo' });
+  assert.strictEqual((await (await post('/api/hello', { id: 'bbbbbbbb-1111-2222-3333-444444444444' })).json()).status, 'ativo');
   await adm('/api/admin/aparelho', { id: ID1, acao: 'etiqueta', valor: 'Telemóvel <b>Leonor</b>' });
   d = await dados(); assert.ok(!d.aparelhos.find((a) => a.id === ID1).etiqueta.includes('<'));
   await adm('/api/admin/aparelho', { id: 'bbbbbbbb-1111-2222-3333-444444444444', acao: 'apagar' });
@@ -50,6 +50,24 @@ test('logout termina a sessão; /admin serve a página com noindex', async () =>
   const p = await fetch(base + '/admin'); assert.strictEqual(p.status, 200); assert.match(p.headers.get('x-robots-tag'), /noindex/);
   await adm('/api/admin/logout', {});
   assert.strictEqual((await fetch(base + '/api/admin/dados', { headers: { Cookie: cookie } })).status, 401);
+});
+test('mudar o nome de uma pessoa vale para todos os aparelhos', async () => {
+  const B = 'cccccccc-1111-2222-3333-444444444444';
+  cookie = (await post('/api/admin/login', { password: 'segredo-de-teste' })).headers.get('set-cookie').split(';')[0];
+  await post('/api/hello', { id: B });
+  assert.strictEqual((await post('/api/pessoas', { id: B, i: 1, nome: 'x' })).status, 403, 'pendente não muda');
+  await adm('/api/admin/aparelho', { id: B, acao: 'aprovar' });
+  const r = await post('/api/pessoas', { id: B, i: 1, nome: '  Maria <b>' });
+  assert.strictEqual(r.status, 200);
+  const nomes = (await r.json()).pessoas;
+  assert.deepStrictEqual(nomes, ['Sofia', 'Maria b', 'Francisco']);
+  const h = await (await post('/api/hello', { id: ID1 })).json();
+  assert.deepStrictEqual(h.pessoas, nomes, 'outro aparelho recebe o nome novo');
+  assert.strictEqual((await post('/api/pessoas', { id: B, i: 3, nome: 'x' })).status, 400);
+  assert.strictEqual((await post('/api/pessoas', { id: B, i: 0, nome: '   ' })).status, 400);
+  assert.strictEqual((await post('/api/pessoas', { id: 'desconhecido-123', i: 0, nome: 'x' })).status, 403);
+  await adm('/api/admin/aparelho', { id: B, acao: 'bloquear' });
+  assert.strictEqual((await post('/api/pessoas', { id: B, i: 0, nome: 'x' })).status, 403, 'bloqueado não muda');
 });
 test('login trava depois de 8 falhas', async () => {
   let ultimo; for (let i = 0; i < 10; i++) ultimo = (await post('/api/admin/login', { password: 'x' })).status;

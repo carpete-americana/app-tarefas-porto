@@ -326,7 +326,7 @@ function viewTarefas(){
 }
 function viewMais(){
   const total=Object.keys(S.done).length;
-  return `<div class="card"><h2>Pessoas</h2><div class="row">${S.people.map((n,i)=>`<div class="f" style="margin:0"><label>Pessoa ${i+1}</label><input type="text" value="${esc(n)}" maxlength="20" data-act="rename" data-i="${i}"></div>`).join('')}</div></div>
+  return `<div class="card"><h2>Pessoas</h2><p class="muted" style="margin:0 0 10px">Mudar um nome muda para toda a gente.</p><div class="row">${S.people.map((n,i)=>`<div class="f" style="margin:0"><label>Pessoa ${i+1}</label><input type="text" value="${esc(n)}" maxlength="20" data-act="rename" data-i="${i}"></div>`).join('')}</div></div>
   <div class="card"><h2>Rotação</h2>
    <div class="f"><label>Segunda-feira da «Semana 1» (as semanas 2 e 3 seguem-se, e repete)</label><input type="date" value="${S.anchor}" data-act="anchor"></div>
    <div class="f"><label>Mês de partida do quarto individual (é da 1.ª pessoa; depois roda 1 pessoa por mês)</label><input type="month" value="${S.roomsBase}" data-act="roomsBase"></div>
@@ -394,7 +394,7 @@ document.addEventListener('toggle',e=>{const d=e.target;if(d.classList?.contains
 document.addEventListener('change',e=>{
   const b=e.target,a=b.dataset?.act;if(!a)return;
   if(a==='ov'){const v=Number(b.value);if(v===Number(b.dataset.def))delete S.ov[b.dataset.k];else S.ov[b.dataset.k]=v;save();render()}
-  else if(a==='rename'){S.people[Number(b.dataset.i)]=b.value.trim()||S.people[Number(b.dataset.i)];save();render()}
+  else if(a==='rename'){const i=Number(b.dataset.i);S.people[i]=b.value.trim()||S.people[i];save();render();enviarNome(i)}
   else if(a==='anchor'&&b.value){S.anchor=b.value;save();render()}
   else if(a==='roomsBase'&&b.value){S.roomsBase=b.value;save();render()}
   else if(a==='trashOn'){S.trashOn=b.checked;save()}
@@ -436,7 +436,17 @@ async function hello(){
   const id=idAparelho();if(!id||!/^https?:$/.test(location.protocol)||bloqueado)return;
   ultimoHello=Date.now();
   try{const r=await fetch('/api/hello',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,pessoa:ui.filter>=0?S.people[ui.filter]:null,instalada:INSTALADA})});
-    if(!r.ok)return;aplicarEstado((await r.json()).status)}catch(e){/* sem rede: a app continua a funcionar */}
+    if(!r.ok)return;const j=await r.json();aplicarPessoas(j.pessoas);aplicarEstado(j.status)}catch(e){/* sem rede: a app continua a funcionar */}
+}
+// Os nomes das pessoas são do servidor: mudar num aparelho muda em todos.
+function aplicarPessoas(p){
+  if(!Array.isArray(p)||p.length!==3||p.every((n,i)=>n===S.people[i]))return;
+  S.people=p.map(String);save();
+  if(!bloqueado&&estadoServ==='ativo')render();
+}
+async function enviarNome(i){
+  const id=idAparelho();if(!id||!/^https?:$/.test(location.protocol))return;
+  try{const r=await fetch('/api/pessoas',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,i,nome:S.people[i]})});if(r.ok)aplicarPessoas((await r.json()).pessoas)}catch(e){}
 }
 function aplicarEstado(st){
   if(st===estadoServ)return;estadoServ=st;

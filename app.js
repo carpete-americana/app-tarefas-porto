@@ -26,11 +26,13 @@ const FICHEIROS = {
 };
 
 /* ---------- dados ---------- */
-let db = { config: { aprovacao: false }, aparelhos: {} };
+const PESSOAS_BASE = ['Sofia', 'Leonor', 'Francisco'];
+let db = { config: { aprovacao: false }, aparelhos: {}, pessoas: PESSOAS_BASE.slice() };
 try {
   const j = JSON.parse(fs.readFileSync(FICHEIRO_DADOS, 'utf8'));
   if (j && typeof j === 'object') {
-    db = { config: { aprovacao: !!(j.config && j.config.aprovacao) }, aparelhos: j.aparelhos && typeof j.aparelhos === 'object' ? j.aparelhos : {} };
+    db = { config: { aprovacao: !!(j.config && j.config.aprovacao) }, aparelhos: j.aparelhos && typeof j.aparelhos === 'object' ? j.aparelhos : {},
+      pessoas: Array.isArray(j.pessoas) && j.pessoas.length === 3 ? j.pessoas.map((n, i) => String(n).slice(0, 20) || PESSOAS_BASE[i]) : PESSOAS_BASE.slice() };
   }
 } catch (e) { /* primeira execução */ }
 
@@ -119,7 +121,19 @@ async function hello(req, res) {
       gravar();
     }
   }
-  json(res, 200, { status: a.status });
+  json(res, 200, { status: a.status, pessoas: db.pessoas });
+}
+
+/* ---------- API pública: mudar o nome de uma pessoa (vale para todos) ---------- */
+async function mudarPessoa(req, res) {
+  if (excede('pessoas:' + ipDe(req), 30, 60e3)) return json(res, 429, { erro: 'Demasiados pedidos.' });
+  let b; try { b = await lerCorpo(req); } catch (e) { return json(res, 400, { erro: 'Pedido inválido.' }); }
+  const a = typeof b.id === 'string' && db.aparelhos[b.id];
+  if (!a || a.status !== 'ativo') return json(res, 403, { erro: 'Aparelho sem acesso.' });
+  const nome = limpa(b.nome, 20);
+  if (!Number.isInteger(b.i) || b.i < 0 || b.i > 2 || !nome) return json(res, 400, { erro: 'Nome inválido.' });
+  db.pessoas[b.i] = nome; gravar();
+  json(res, 200, { pessoas: db.pessoas });
 }
 
 /* ---------- API de admin ---------- */
@@ -169,6 +183,7 @@ async function admin(req, res, rota) {
 const servidor = http.createServer((req, res) => {
   const caminho = req.url.split('?')[0];
   if (caminho === '/api/hello' && req.method === 'POST') return hello(req, res).catch(() => json(res, 500, { erro: 'Erro interno.' }));
+  if (caminho === '/api/pessoas' && req.method === 'POST') return mudarPessoa(req, res).catch(() => json(res, 500, { erro: 'Erro interno.' }));
   if (caminho.startsWith('/api/admin/')) return admin(req, res, caminho).catch(() => json(res, 500, { erro: 'Erro interno.' }));
   if (caminho.startsWith('/api/')) return json(res, 404, { erro: 'Não encontrado.' });
 

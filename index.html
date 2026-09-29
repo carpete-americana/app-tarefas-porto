@@ -5,6 +5,11 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#4f46e5">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Tarefas">
 <title>Tarefas Porto</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%234f46e5'/%3E%3Cpath d='M18 34l10 10 20-22' fill='none' stroke='white' stroke-width='7' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 <style>
@@ -91,6 +96,15 @@ details.pcard>summary .chev{transition:transform .2s;color:var(--mute)}
 details.pcard[open]>summary .chev{transform:rotate(90deg)}
 details.pcard>.body{padding:0 14px 12px}
 @media(max-width:759px){header.top h1{font-size:18px}.big{font-size:22px}.item{padding:11px 0}.card{padding:12px}.grid3{gap:10px}.btn{min-height:42px}}
+#gate{position:fixed;inset:0;z-index:100;background:var(--bg);overflow:auto;padding:calc(env(safe-area-inset-top,0px) + 24px) 20px calc(env(safe-area-inset-bottom,0px) + 24px)}
+#gate .box{max-width:440px;margin:0 auto}
+#gate img{width:72px;height:72px;border-radius:16px;display:block;margin:0 auto 14px}
+#gate h1{font-size:22px;text-align:center;margin:0 0 6px}
+#gate p.lead{text-align:center;color:var(--mute);margin:0 0 18px}
+#gate ol{margin:0;padding:0;list-style:none;counter-reset:p}
+#gate li{counter-increment:p;display:flex;gap:12px;padding:12px 0;border-top:1px solid var(--line);align-items:flex-start}
+#gate li::before{content:counter(p);flex:none;width:28px;height:28px;border-radius:50%;background:var(--pri);color:var(--pri-ink);font-weight:700;display:grid;place-content:center;font-size:14px}
+#gate .btn{width:100%;margin-top:14px}
 </style>
 </head>
 <body>
@@ -99,6 +113,7 @@ details.pcard>.body{padding:0 14px 12px}
     <nav class="tabs" id="tabs"></nav></header>
   <main id="main"></main>
 </div>
+<div id="gate" hidden></div>
 <dialog id="dlg"></dialog>
 <input type="file" id="file" accept=".json,application/json" hidden>
 <script>
@@ -390,7 +405,30 @@ document.getElementById('file').addEventListener('change',async e=>{
   catch(_){alert('Ficheiro inválido.')}
   e.target.value='';
 });
-render();
+/* ---------- só funciona instalada no ecrã principal (telemóvel) ---------- */
+const IOS=/iPhone|iPad|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
+const MOVEL=IOS||/Android/.test(navigator.userAgent);
+const INSTALADA=['standalone','fullscreen','minimal-ui'].some(m=>matchMedia(`(display-mode: ${m})`).matches)||navigator.standalone===true;
+const LOCAL=['localhost','127.0.0.1',''].includes(location.hostname);
+let pedidoInstalar=null;
+window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();pedidoInstalar=e;if(bloqueado)mostrarGate()});
+let bloqueado=MOVEL&&!INSTALADA&&!LOCAL;
+function mostrarGate(){
+  const g=document.getElementById('gate');
+  const passos=IOS
+    ?['Toca no botão <b>Partilhar</b> (o quadrado com a seta para cima) na barra do Safari.','Desce e escolhe <b>Adicionar ao Ecrã Principal</b>, e depois <b>Adicionar</b>.','Fecha o Safari e abre a app <b>Tarefas</b> pelo ícone que apareceu no ecrã principal.']
+    :['Abre o menu do Chrome (os três pontos ⋮).','Escolhe <b>Instalar app</b> (ou <b>Adicionar ao ecrã principal</b>).','Abre a app <b>Tarefas</b> pelo ícone que apareceu no ecrã principal.'];
+  g.innerHTML=`<div class="box"><img src="/icon-192.png" alt=""><h1>Instala a app para continuar</h1>
+    <p class="lead">A Tarefas Porto só funciona depois de adicionada ao ecrã principal.</p>
+    ${pedidoInstalar?'<button class="btn pri" id="instalar">Instalar agora</button>':''}
+    <ol>${passos.map(x=>`<li><span>${x}</span></li>`).join('')}</ol>
+    ${IOS?'<p class="muted" style="margin-top:14px">Se estiveres noutro browser que não o Safari, abre este endereço no Safari.</p>':''}</div>`;
+  g.hidden=false;document.querySelector('.app').hidden=true;
+  const bt=document.getElementById('instalar');
+  if(bt)bt.onclick=async()=>{try{pedidoInstalar.prompt();await pedidoInstalar.userChoice}catch(e){}pedidoInstalar=null;mostrarGate()};
+}
+if('serviceWorker'in navigator&&/^https?:$/.test(location.protocol))navigator.serviceWorker.register('/sw.js').catch(()=>{});
+if(bloqueado)mostrarGate();else render();
 </script>
 </body>
 </html>

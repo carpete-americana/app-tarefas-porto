@@ -169,7 +169,7 @@ try{S=JSON.parse(localStorage.getItem(KEY)||'null')}catch(e){S=null}
 if(!S||!Array.isArray(S.tasks))S=freshState();
 const save=()=>{try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}};
 const FKEY='tarefas-porto-filtro';
-let f0=-1;try{f0=Number(localStorage.getItem(FKEY));if(!Number.isInteger(f0)||f0<-1||f0>=S.people.length)f0=-1}catch(e){f0=-1}
+let f0=-1;try{const v=localStorage.getItem(FKEY);f0=v===null?-1:Number(v);if(!Number.isInteger(f0)||f0<-1||f0>=S.people.length)f0=-1}catch(e){f0=-1}
 const ui={tab:'hoje',week:mondayOf(today()),filter:f0,open:{},dayOpen:{}};
 const PCOL=i=>`var(--p${i%3})`;
 const who=i=>S.people[i]??'?';

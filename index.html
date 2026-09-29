@@ -376,7 +376,7 @@ document.addEventListener('click',e=>{
   const b=e.target.closest('[data-act]');if(!b)return;const a=b.dataset.act;
   if(b.tagName==='SELECT'||b.tagName==='INPUT'&&b.type!=='checkbox'&&a!=='toggle')return;
   if(a==='tab'){ui.tab=b.dataset.t;window.scrollTo(0,0);render()}
-  else if(a==='filter'){ui.filter=Number(b.dataset.i);try{localStorage.setItem(FKEY,ui.filter)}catch(e){}render()}
+  else if(a==='filter'){ui.filter=Number(b.dataset.i);try{localStorage.setItem(FKEY,ui.filter)}catch(e){}render();hello()}
   else if(a==='wk'){const d=Number(b.dataset.d);ui.week=d===0?mondayOf(today()):addDays(ui.week,7*d);render()}
   else if(a==='toggle'){const k=b.dataset.k;if(S.done[k])delete S.done[k];else S.done[k]=1;save();render()}
   else if(a==='days'){const k=b.dataset.dk;ui.dayOpen[k]=!ui.dayOpen[k];render()}
@@ -428,7 +428,31 @@ function mostrarGate(){
   if(bt)bt.onclick=async()=>{try{pedidoInstalar.prompt();await pedidoInstalar.userChoice}catch(e){}pedidoInstalar=null;mostrarGate()};
 }
 if('serviceWorker'in navigator&&/^https?:$/.test(location.protocol))navigator.serviceWorker.register('/sw.js').catch(()=>{});
-if(bloqueado)mostrarGate();else render();
+/* ---------- regista o aparelho no servidor (admin) ---------- */
+const DKEY='tarefas-porto-id';
+function idAparelho(){try{let v=localStorage.getItem(DKEY);if(!v||!/^[A-Za-z0-9-]{8,64}$/.test(v)){v=crypto.randomUUID?crypto.randomUUID():(Date.now().toString(16)+Math.random().toString(16).slice(2)).padEnd(12,'0');localStorage.setItem(DKEY,v)}return v}catch(e){return null}}
+let estadoServ='ativo',pollHello=null,ultimoHello=0;
+async function hello(){
+  const id=idAparelho();if(!id||!/^https?:$/.test(location.protocol)||bloqueado)return;
+  ultimoHello=Date.now();
+  try{const r=await fetch('/api/hello',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,pessoa:ui.filter>=0?S.people[ui.filter]:null,instalada:INSTALADA})});
+    if(!r.ok)return;aplicarEstado((await r.json()).status)}catch(e){/* sem rede: a app continua a funcionar */}
+}
+function aplicarEstado(st){
+  if(st===estadoServ)return;estadoServ=st;
+  const g=document.getElementById('gate');
+  clearInterval(pollHello);
+  if(st==='ativo'){g.hidden=true;document.querySelector('.app').hidden=false;render();return}
+  const pend=st==='pendente';
+  g.innerHTML=`<div class="box"><img src="/icon-192.png" alt=""><h1>${pend?'À espera de aprovação':'Acesso bloqueado'}</h1>
+    <p class="lead">${pend?'O administrador ainda tem de aprovar este aparelho. Esta página atualiza sozinha.':'Este aparelho não tem acesso. Se achas que é engano, fala com o administrador.'}</p>
+    <button class="btn pri" id="verificar">Verificar agora</button></div>`;
+  g.hidden=false;document.querySelector('.app').hidden=true;
+  document.getElementById('verificar').onclick=hello;
+  pollHello=setInterval(hello,30000);
+}
+document.addEventListener('visibilitychange',()=>{if(!document.hidden&&Date.now()-ultimoHello>60000)hello()});
+if(bloqueado)mostrarGate();else{render();hello()}
 </script>
 </body>
 </html>

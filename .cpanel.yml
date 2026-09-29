@@ -1,0 +1,7 @@
+---
+deployment:
+  tasks:
+    - export DEPLOYPATH=/home/carpetep/porto/
+    - /bin/cp index.html app.js package.json $DEPLOYPATH
+    - /bin/mkdir -p ${DEPLOYPATH}tmp
+    - /bin/touch ${DEPLOYPATH}tmp/restart.txt

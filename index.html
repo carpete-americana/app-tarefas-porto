@@ -66,11 +66,24 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
 .empty{text-align:center;padding:26px 8px;color:var(--mute)}
 .big{font-size:26px;font-weight:700}
 .wk{display:flex;align-items:center;gap:8px}
+header.top{gap:6px 12px}
+.sub{flex-basis:100%;order:2;min-width:0}
+.sub:empty{display:none}
+.sub .chips{flex-wrap:nowrap;overflow-x:auto;padding-bottom:2px;scrollbar-width:none}
+.sub .chips::-webkit-scrollbar{display:none}
+.chip{white-space:nowrap;min-height:36px}
+details.pcard{padding:0}
+details.pcard>summary{list-style:none;cursor:pointer;padding:14px}
+details.pcard>summary::-webkit-details-marker{display:none}
+details.pcard>summary .chev{transition:transform .2s;color:var(--mute)}
+details.pcard[open]>summary .chev{transform:rotate(90deg)}
+details.pcard>.body{padding:0 14px 12px}
+@media(max-width:759px){header.top h1{font-size:18px}.big{font-size:22px}.item{padding:11px 0}.card{padding:12px}.grid3{gap:10px}.btn{min-height:42px}}
 </style>
 </head>
 <body>
 <div class="app">
-  <header class="top"><h1>🏠 Tarefas Porto</h1><div id="hdr" class="row"></div>
+  <header class="top"><h1>🏠 Tarefas Porto</h1><div id="sub" class="sub"></div>
     <nav class="tabs" id="tabs"></nav></header>
   <main id="main"></main>
 </div>
@@ -128,7 +141,7 @@ let S;
 try{S=JSON.parse(localStorage.getItem(KEY)||'null')}catch(e){S=null}
 if(!S||!Array.isArray(S.tasks))S=freshState();
 const save=()=>{try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}};
-const ui={tab:'hoje',week:mondayOf(today()),filter:-1};
+const ui={tab:'hoje',week:mondayOf(today()),filter:-1,open:{}};
 const PCOL=i=>`var(--p${i%3})`;
 const who=i=>S.people[i]??'?';
 
@@ -215,7 +228,7 @@ function viewHoje(){
   const trash=dayItems.find(o=>o.trash);
   const sec=(title,items,sd)=>items.length?`<div class="card"><h3>${title}</h3>${items.map(o=>itemRow(o,{showPerson:ui.filter===-1,showDay:sd})).join('')}</div>`:'';
   return `<div class="card"><div class="row"><div class="grow"><div class="muted">${DAYS_LONG[dow(now)]}, ${dm(now)} · Semana ${weekNo(mon)} da rotação</div>
-    <div class="big">${pr.d}/${pr.n} feitas</div></div>${filterChips()}</div><div style="margin-top:10px">${bar(pr)}</div>
+    <div class="big">${pr.d}/${pr.n} feitas</div></div></div><div style="margin-top:10px">${bar(pr)}</div>
     ${trash?`<p class="muted" style="margin:10px 0 0">🗑️ Hoje o lixo é de <b style="color:${PCOL(trash.p)}">${esc(who(trash.p))}</b>.</p>`:''}</div>`+
     sec('Hoje',dayItems.filter(o=>!o.trash||true),false)+
     sec('Por fazer esta semana',weekItems.filter(o=>!isDone(o)),true)+
@@ -235,7 +248,9 @@ function viewSemana(){
   const trash=S.trashOn?TRASH_DAYS.map(k=>{const d=addDays(mon,k),p=respTrash(d),def=mod(weekAbs(mon)*4+TRASH_DAYS.indexOf(k),3);
     return `<div class="row" style="justify-content:space-between;padding:4px 0"><span>🗑️ ${DAYS_LONG[k]} ${dm(d)}</span><span>${peopleSelect('lixo|'+fmt(d),p,def)}${S.ov['lixo|'+fmt(d)]!==undefined?'<span class="tag">trocado</span>':''}</span></div>`}).join(''):'';
   const q=roomsMonth(mon);
+  const wide=matchMedia('(min-width:760px)').matches;
   const cards=S.people.map((n,p)=>{
+    if(ui.filter!==-1&&ui.filter!==p)return '';
     const mine=occ.filter(o=>o.p===p),pr=progress(mine);
     const daily=mine.filter(o=>o.kind==='day'&&o.t.repeat==='daily');
     const groups=[...new Set(daily.map(o=>o.t.id))].map(id=>{
@@ -244,9 +259,10 @@ function viewSemana(){
         <div class="days">${os.map(o=>{const isT=fmt(o.date)===fmt(now);return `<button class="${isDone(o)?'on':''} ${isT?'today':''}" data-act="toggle" data-k="${esc(o.key)}" aria-pressed="${isDone(o)}" aria-label="${DAYS_LONG[dow(o.date)]}">${DAYS[dow(o.date)]}</button>`}).join('')}</div></div>`}).join('');
     const rest=mine.filter(o=>!(o.kind==='day'&&o.t.repeat==='daily')).sort((a,b)=>(a.date?dow(a.date):9)-(b.date?dow(b.date):9));
     const roomsOf=COMMON.filter(r=>respRoom(r,mon)===p);
-    return `<div class="card" style="border-top:4px solid ${PCOL(p)}"><div class="row"><h2 class="grow"><span class="dot" style="background:${PCOL(p)}"></span>${esc(n)}</h2><b>${pr.d}/${pr.n}</b></div>${bar(pr)}
-      <p class="muted" style="margin:8px 0 4px">${roomsOf.length?'Responsável por: <b>'+roomsOf.join(', ')+'</b>':'Sem divisão comum esta semana'} · ${q.ind===p?'quarto individual':'quarto partilhado'}</p>
-      ${groups}${rest.map(o=>itemRow(o,{showDay:true})).join('')}${!mine.length?'<div class="empty">Nada atribuído</div>':''}</div>`}).join('');
+    const open=ui.filter!==-1||(ui.open[p]??wide);
+    return `<details class="card pcard" data-p="${p}" ${open?'open':''} style="border-top:4px solid ${PCOL(p)}"><summary><div class="row"><h2 class="grow" style="margin:0"><span class="dot" style="background:${PCOL(p)}"></span>${esc(n)}</h2><b>${pr.d}/${pr.n}</b><span class="chev">▸</span></div><div style="margin-top:8px">${bar(pr)}</div>
+      <p class="muted" style="margin:8px 0 0">${roomsOf.length?'Responsável por: <b>'+roomsOf.join(', ')+'</b>':'Sem divisão comum'} · ${q.ind===p?'quarto individual':'quarto partilhado'}</p></summary>
+      <div class="body">${groups}${rest.map(o=>itemRow(o,{showDay:true})).join('')}${!mine.length?'<div class="empty">Nada atribuído</div>':''}</div></details>`}).join('');
   return `<div class="card row">${weekNav()}<span class="grow"></span></div>
    <details class="card"><summary><b>Responsáveis da semana</b> <span class="muted">— trocar se for preciso</span></summary><div style="margin-top:8px">${rooms}${trash?'<hr style="border:0;border-top:1px solid var(--line)">'+trash:''}</div></details>
    <div class="grid3">${cards}</div>`;
@@ -322,6 +338,7 @@ const $dlg=document.getElementById('dlg'),$main=document.getElementById('main');
 const TABS=[['hoje','☀️','Hoje',viewHoje],['semana','📅','Semana',viewSemana],['rot','🔄','Rotações',viewRot],['tarefas','📝','Tarefas',viewTarefas],['mais','⚙️','Definições',viewMais]];
 function render(){
   document.getElementById('tabs').innerHTML=TABS.map(([k,i,l])=>`<button data-act="tab" data-t="${k}" ${ui.tab===k?'aria-current="page"':''}><span class="i">${i}</span>${l}</button>`).join('');
+  document.getElementById('sub').innerHTML=(ui.tab==='hoje'||ui.tab==='semana')?filterChips():'';
   const v=TABS.find(t=>t[0]===ui.tab)[3];
   const y=window.scrollY;$main.innerHTML=v();window.scrollTo(0,y);
 }
@@ -342,6 +359,7 @@ document.addEventListener('click',e=>{
   else if(a==='clearDone'){if(b.dataset.arm){S.done={};save();render()}else{b.dataset.arm=1;b.textContent='Confirmar?'}}
   else if(a==='reset'){if(b.dataset.arm){S=freshState();save();render()}else{b.dataset.arm=1;b.textContent='Apagar tudo? Clica de novo'}}
 });
+document.addEventListener('toggle',e=>{const d=e.target;if(d.classList?.contains('pcard')&&ui.filter===-1)ui.open[d.dataset.p]=d.open},true);
 document.addEventListener('change',e=>{
   const b=e.target,a=b.dataset?.act;if(!a)return;
   if(a==='ov'){const v=Number(b.value);if(v===Number(b.dataset.def))delete S.ov[b.dataset.k];else S.ov[b.dataset.k]=v;save();render()}

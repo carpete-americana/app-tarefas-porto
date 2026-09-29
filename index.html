@@ -65,11 +65,15 @@ th,td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left;verti
 th{font-size:12.5px;color:var(--mute);font-weight:600}
 .scroll{overflow-x:auto}
 tr.now td{background:var(--chip)}
-select,input[type=text],input[type=date],textarea{border:1px solid var(--line);background:var(--card);border-radius:8px;padding:7px 9px;max-width:100%}
+select,input[type=text],input[type=date],input[type=month],textarea{border:1px solid var(--line);background:var(--card);border-radius:8px;padding:7px 9px;max-width:100%}
 select.sm{padding:3px 6px;font-size:13px}
 dialog{border:1px solid var(--line);border-radius:16px;background:var(--card);color:var(--ink);padding:18px;width:min(480px,calc(100vw - 24px))}
 dialog::backdrop{background:rgba(0,0,0,.45)}
-.f{display:grid;gap:4px;margin-bottom:11px}.f label{font-size:12.5px;color:var(--mute)}
+.row>.f{flex:1 1 220px;min-width:0}
+input[type=date],input[type=month]{-webkit-appearance:none;appearance:none;width:100%;min-width:0;max-width:100%;min-height:44px;text-align:left}
+input[type=date]::-webkit-date-and-time-value,input[type=month]::-webkit-date-and-time-value{text-align:left}
+input[type=text]{min-height:44px}
+.f{display:grid;gap:4px;margin-bottom:11px;min-width:0}.f label{font-size:12.5px;color:var(--mute)}
 .f input,.f select,.f textarea{width:100%}
 .empty{text-align:center;padding:26px 8px;color:var(--mute)}
 .big{font-size:26px;font-weight:700}
@@ -149,7 +153,9 @@ let S;
 try{S=JSON.parse(localStorage.getItem(KEY)||'null')}catch(e){S=null}
 if(!S||!Array.isArray(S.tasks))S=freshState();
 const save=()=>{try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}};
-const ui={tab:'hoje',week:mondayOf(today()),filter:-1,open:{},dayOpen:{}};
+const FKEY='tarefas-porto-filtro';
+let f0=-1;try{f0=Number(localStorage.getItem(FKEY));if(!Number.isInteger(f0)||f0<-1||f0>=S.people.length)f0=-1}catch(e){f0=-1}
+const ui={tab:'hoje',week:mondayOf(today()),filter:f0,open:{},dayOpen:{}};
 const PCOL=i=>`var(--p${i%3})`;
 const who=i=>S.people[i]??'?';
 
@@ -356,7 +362,7 @@ document.addEventListener('click',e=>{
   const b=e.target.closest('[data-act]');if(!b)return;const a=b.dataset.act;
   if(b.tagName==='SELECT'||b.tagName==='INPUT'&&b.type!=='checkbox'&&a!=='toggle')return;
   if(a==='tab'){ui.tab=b.dataset.t;window.scrollTo(0,0);render()}
-  else if(a==='filter'){ui.filter=Number(b.dataset.i);render()}
+  else if(a==='filter'){ui.filter=Number(b.dataset.i);try{localStorage.setItem(FKEY,ui.filter)}catch(e){}render()}
   else if(a==='wk'){const d=Number(b.dataset.d);ui.week=d===0?mondayOf(today()):addDays(ui.week,7*d);render()}
   else if(a==='toggle'){const k=b.dataset.k;if(S.done[k])delete S.done[k];else S.done[k]=1;save();render()}
   else if(a==='days'){const k=b.dataset.dk;ui.dayOpen[k]=!ui.dayOpen[k];render()}

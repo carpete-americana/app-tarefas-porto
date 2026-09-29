@@ -244,8 +244,7 @@ function viewHoje(){
     <div class="big">${pr.d}/${pr.n} feitas</div></div></div><div style="margin-top:10px">${bar(pr)}</div>
     ${trash?`<p class="muted" style="margin:10px 0 0">🗑️ Hoje o lixo é de <b style="color:${PCOL(trash.p)}">${esc(who(trash.p))}</b>.</p>`:''}</div>`+
     sec('Hoje',dayItems.filter(o=>!o.trash||true),false)+
-    sec('Por fazer esta semana',weekItems.filter(o=>!isDone(o)),true)+
-    (weekItems.some(isDone)?`<details class="card"><summary>Já feitas esta semana (${weekItems.filter(isDone).length})</summary>${weekItems.filter(isDone).map(o=>itemRow(o,{showPerson:ui.filter===-1,showDay:true})).join('')}</details>`:'')+
+    sec('Esta semana',weekItems,true)+
     (!list.length?'<div class="empty">Sem tarefas para hoje 🎉</div>':'');
 }
 function weekNav(){

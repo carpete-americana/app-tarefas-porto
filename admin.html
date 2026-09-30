@@ -104,6 +104,8 @@ details.grp>summary .n{margin-left:auto;font-weight:400;color:var(--mute);font-s
       <div class="card"><b>Som do CLOCK IIIIIT</b><p class="muted" style="margin:2px 0 12px">Toca quando alguém completa o dia (som curto), tudo (mais longo) ou a semana (o maior). Nos telemóveis só toca depois de a pessoa tocar no ecrã, e no iPhone o interruptor de silêncio pode calá-lo.</p>
         <label class="sw" style="margin-bottom:14px"><input type="checkbox" id="c-som"><span><b>Tocar som</b><br><span class="muted">Desliga para as pessoas não serem incomodadas.</span></span></label>
         <div class="row" style="margin-bottom:14px"><span>Volume</span><input type="range" id="c-vol" min="0" max="100" step="5" style="flex:1;min-width:140px"><b id="vol-n" style="min-width:44px;text-align:right"></b></div>
+        <label class="sw" style="margin-bottom:14px"><input type="checkbox" id="c-abanar"><span><b>Ecrã a tremer</b><br><span class="muted">O conteúdo abana ao completar o dia, tudo ou a semana (o menu fica quieto). Quem tem «reduzir movimento» ligado não vê.</span></span></label>
+        <label class="sw" style="margin-bottom:14px"><input type="checkbox" id="c-vibrar"><span><b>Telemóvel a vibrar</b><br><span class="muted">Funciona no Android. No iPhone o Safari não tem vibração oficial: tento um truque do iOS 17.4+ que pode não funcionar.</span></span></label>
         <div class="row"><button class="btn" data-ouvir="1">▶ Dia</button><button class="btn" data-ouvir="2">▶ Tudo</button><button class="btn" data-ouvir="3">▶ Semana</button></div></div>
       <div class="card"><b>O teu próprio som</b><p class="muted" style="margin:2px 0 10px">Por omissão toca um som feito de raiz (sinos, um «iiiit» a subir e um acorde). Se preferires outro, por exemplo o da trend, carrega um ficheiro teu: mp3, wav, ogg ou m4a, até 600 KB. Tem de ser um som que possas usar.</p>
         <p id="somInfo" style="margin:0 0 10px"></p>
@@ -155,7 +157,7 @@ function desenhar(){
   const A=D.aparelhos,n=(f)=>A.filter(f).length;
   $('#upd').textContent='atualizado '+new Date().toLocaleTimeString('pt-PT',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
   $('#aprov').checked=!!D.config.aprovacao;
-  $('#c-som').checked=!!D.config.somAtivo;if(document.activeElement!==$('#c-vol'))$('#c-vol').value=D.config.somVolume;$('#vol-n').textContent=$('#c-vol').value+'%';
+  $('#c-som').checked=!!D.config.somAtivo;$('#c-abanar').checked=!!D.config.abanarAtivo;$('#c-vibrar').checked=!!D.config.vibrarAtivo;if(document.activeElement!==$('#c-vol'))$('#c-vol').value=D.config.somVolume;$('#vol-n').textContent=$('#c-vol').value+'%';
   $('#somInfo').innerHTML=D.som?'Som carregado: <b>'+esc(D.som.nome)+'</b> ('+Math.max(1,Math.round(D.som.tamanho/1024))+' KB)':'Nenhum carregado: a usar o som original.';
   $('#somRemover').hidden=!D.som;
   if(D.som&&window.SomTP)SomTP.precarregar('/api/som?v='+D.som.v);
@@ -182,7 +184,7 @@ $('#lf').onsubmit=async e=>{e.preventDefault();$('#lerr').textContent='';
   try{await api('/api/admin/login',{password:$('#pw').value});$('#pw').value='';await carregar();timer=setInterval(carregar,20000)}
   catch(err){$('#lerr').textContent=err.message}};
 const cfg=async o=>{try{await api('/api/admin/config',o);await carregar()}catch(e){alert(e.message);await carregar()}};
-$('#c-som').onchange=e=>cfg({somAtivo:e.target.checked});
+$('#c-som').onchange=e=>cfg({somAtivo:e.target.checked});$('#c-abanar').onchange=e=>cfg({abanarAtivo:e.target.checked});$('#c-vibrar').onchange=e=>cfg({vibrarAtivo:e.target.checked});
 $('#c-vol').oninput=e=>{$('#vol-n').textContent=e.target.value+'%'};$('#c-vol').onchange=e=>cfg({somVolume:Number(e.target.value)});
 document.querySelectorAll('[data-ouvir]').forEach(b=>b.onclick=()=>{if(window.SomTP)SomTP.tocar(Number(b.dataset.ouvir),Number($('#c-vol').value)/100,D.som?'/api/som?v='+D.som.v:'')});
 $('#somFicheiro').onchange=e=>{

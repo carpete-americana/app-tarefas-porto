@@ -135,6 +135,10 @@ nav.tabs button .l.cut{overflow:hidden;text-overflow:ellipsis;max-width:100%}
 .fxbanner.sai{opacity:0;transition:opacity .4s}
 @keyframes pop{from{transform:scale(.2) rotate(-8deg);opacity:0}to{transform:scale(1) rotate(0);opacity:1}}
 @keyframes tremer{0%{transform:translateX(0)}25%{transform:translateX(-4px) rotate(-1deg)}75%{transform:translateX(4px) rotate(1deg)}100%{transform:translateX(0)}}
+@keyframes abanar{0%{transform:translate(0,0) rotate(0)}20%{transform:translate(calc(-7px*var(--tr,1)),calc(3px*var(--tr,1))) rotate(calc(-.5deg*var(--tr,1)))}40%{transform:translate(calc(6px*var(--tr,1)),calc(-5px*var(--tr,1))) rotate(calc(.6deg*var(--tr,1)))}60%{transform:translate(calc(-5px*var(--tr,1)),calc(-4px*var(--tr,1))) rotate(calc(-.4deg*var(--tr,1)))}80%{transform:translate(calc(7px*var(--tr,1)),calc(5px*var(--tr,1))) rotate(calc(.5deg*var(--tr,1)))}100%{transform:translate(0,0) rotate(0)}}
+.abanar main,.abanar header h1,.abanar #sub{animation:abanar .1s linear infinite}
+.abanar nav.tabs{animation:abanarNav .1s linear infinite}
+@keyframes abanarNav{0%,100%{transform:translateX(0)}25%{transform:translateX(-4px)}75%{transform:translateX(4px)}}
 @keyframes balancar{from{transform:rotate(-16deg) scale(1)}to{transform:rotate(16deg) scale(1.18)}}
 @keyframes arcoiris{to{background-position:200% 0}}
 .confete{position:fixed;top:-8vh;z-index:80;pointer-events:none;animation:cair linear forwards}
@@ -172,10 +176,31 @@ const TDEF=Object.fromEntries((window.TEXTOS_DEF||[]).map(d=>[d.k,d.v]));
 let TOV={};try{TOV=JSON.parse(localStorage.getItem(TKEYS)||'{}')||{}}catch(e){TOV={}}
 let tvSrv=-1;
 const FXKEY='tarefas-porto-fx';
-let FX={som:true,vol:70,custom:0};try{FX={...FX,...JSON.parse(localStorage.getItem(FXKEY)||'{}')}}catch(e){}
+let FX={som:true,vol:70,abanar:true,vibrar:true,custom:0};try{FX={...FX,...JSON.parse(localStorage.getItem(FXKEY)||'{}')}}catch(e){}
 const urlSom=()=>FX.custom?'/api/som?v='+FX.custom:'';
 function precarregarSom(){if(window.SomTP&&FX.custom)SomTP.precarregar(urlSom())}
 function tocarSom(nivel){if(FX.som&&window.SomTP)SomTP.tocar(nivel,(FX.vol??70)/100,urlSom())} // nível 1 = dia, 2 = tudo, 3 = semana
+// Tremer: o ecrã abana (só o conteúdo, nunca o menu fixo) e o telemóvel vibra. Respeita «reduzir movimento».
+const PADROES_VIBRAR={1:[80,40,80,40,160],2:[120,50,120,50,120,50,300],3:[200,80,200,80,200,80,200,80,500]};
+let hapticoEl=null;
+function haptico(n){ // iPhone (Safari 17.4+): um interruptor invisível dá um toque tátil ao mudar. Truque não oficial, pode não funcionar.
+  try{
+    if(!hapticoEl){const l=document.createElement('label');l.setAttribute('aria-hidden','true');l.style.cssText='position:fixed;left:-9999px;top:0;opacity:0;pointer-events:none';l.innerHTML='<input type="checkbox" switch tabindex="-1">';document.body.appendChild(l);hapticoEl=l}
+    for(let i=0;i<n;i++)setTimeout(()=>hapticoEl.click(),i*120);
+  }catch(e){}
+}
+function vibrarTel(nivel){
+  if(!FX.vibrar||reduzMov())return;
+  try{if(navigator.vibrate){navigator.vibrate(PADROES_VIBRAR[nivel]);return}}catch(e){}
+  haptico(nivel===1?2:nivel===2?4:6);
+}
+let abanarT=null;
+function abanarEcra(nivel){
+  if(!FX.abanar||reduzMov())return;
+  const r=document.documentElement;r.style.setProperty('--tr',nivel===1?1:nivel===2?1.6:2.2);
+  r.classList.add('abanar');clearTimeout(abanarT);abanarT=setTimeout(()=>r.classList.remove('abanar'),nivel===1?1000:nivel===2?1700:2500);
+}
+function impacto(nivel){tocarSom(nivel);abanarEcra(nivel);vibrarTel(nivel)}
 function tLista(k){const v=TOV[k]!==undefined?TOV[k]:TDEF[k];return Array.isArray(v)?v:[String(v??'')]}
 function tRaw(k){let v=TOV[k]!==undefined?TOV[k]:TDEF[k];if(Array.isArray(v))v=v.length?v[Math.floor(Math.random()*v.length)]:'';return v==null?k:String(v)}
 // T: HTML seguro (escapa, **negrito**; variáveis escapadas, menos as que acabam em Html). TP: texto simples.
@@ -534,9 +559,9 @@ function efeitosConcluir(chave){
   const occ=genWeek(mon).filter(o=>!o.optional&&(ui.filter===-1||o.p===ui.filter));
   if(occ.some(o=>o.key===chave)){
     const hoje=occ.filter(o=>o.kind==='day'&&fmt(o.date)===fmt(now)),lista=occ.filter(o=>o.kind==='week'||fmt(o.date)===fmt(now));
-    if(occ.every(isDone)){tocarSom(3);chuva(TP('fx.emojisSemana'),110,true);banner(`<div class="linha"><b>${esc(TP('fx.semana'))}</b></div>`,3400);return}
-    if(lista.length&&lista.every(isDone)){tocarSom(2);chuva(TP('fx.emojisTudo'),100,true);banner(`<div class="linha">${relogio()}<b>${esc(TP('fx.clock'))}</b>${relogio()}</div><small>${esc(TP('fx.tudo'))}</small>`,3600);return}
-    if(hoje.length&&hoje.every(isDone)){tocarSom(1);chuva(TP('fx.emojisDia'),80,true);banner(`<div class="linha">${relogio()}<b>${esc(TP('fx.clock'))}</b>${relogio()}</div>`,3000);return}
+    if(occ.every(isDone)){impacto(3);chuva(TP('fx.emojisSemana'),110,true);banner(`<div class="linha"><b>${esc(TP('fx.semana'))}</b></div>`,3400);return}
+    if(lista.length&&lista.every(isDone)){impacto(2);chuva(TP('fx.emojisTudo'),100,true);banner(`<div class="linha">${relogio()}<b>${esc(TP('fx.clock'))}</b>${relogio()}</div><small>${esc(TP('fx.tudo'))}</small>`,3600);return}
+    if(hoje.length&&hoje.every(isDone)){impacto(1);chuva(TP('fx.emojisDia'),80,true);banner(`<div class="linha">${relogio()}<b>${esc(TP('fx.clock'))}</b>${relogio()}</div>`,3000);return}
   }
   chuva(TP('fx.emojisTarefa'),14);
   const c={3:'fx.combo3',5:'fx.combo5',8:'fx.combo8'}[ui.combo.length];

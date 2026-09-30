@@ -339,13 +339,18 @@ test('admin: ícone, manifest próprio e cabeçalhos', async () => {
 test('som: configuração, envio de áudio próprio (validado pelos bytes), remoção', async () => {
   const fx = async () => (await (await fetch(base + '/api/textos')).json());
   const antes = await fx();
-  assert.deepStrictEqual(antes.fx, { som: true, vol: 70, custom: 0 }, 'por omissão: ligado, volume 70, sem áudio próprio');
+  assert.deepStrictEqual(antes.fx, { som: true, vol: 70, abanar: true, vibrar: true, custom: 0 }, 'por omissão: tudo ligado, volume 70, sem áudio próprio');
   assert.strictEqual((await fetch(base + '/api/som')).status, 404);
   // config: volume e interruptor, com validação; cada mudança avisa os aparelhos (versão dos textos)
   await adm('/api/admin/config', { somAtivo: false, somVolume: 40 });
   const c = await fx(); assert.deepStrictEqual([c.fx.som, c.fx.vol], [false, 40]); assert.ok(c.tv > antes.tv);
   await adm('/api/admin/config', { somVolume: 250, somAtivo: true });
   assert.strictEqual((await fx()).fx.vol, 40, 'volume fora de 0–100 é ignorado');
+  await adm('/api/admin/config', { abanarAtivo: false, vibrarAtivo: false });
+  assert.deepStrictEqual([(await fx()).fx.abanar, (await fx()).fx.vibrar], [false, false], 'abanar e vibrar desligam-se à parte');
+  await adm('/api/admin/config', { abanarAtivo: 'sim', vibrarAtivo: true });
+  assert.deepStrictEqual([(await fx()).fx.abanar, (await fx()).fx.vibrar], [false, true], 'só booleanos são aceites; o resto fica como estava');
+  await adm('/api/admin/config', { abanarAtivo: true });
   // áudio próprio
   const mp3 = Buffer.concat([Buffer.from('ID3'), Buffer.from([4, 0, 0, 0, 0, 0, 0]), Buffer.alloc(2000, 7)]);
   const env = (b, nome) => adm('/api/admin/som', { nome, dados: b.toString('base64') });

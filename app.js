@@ -15,7 +15,7 @@ const BACKUPS_DIR = path.join(DATA_DIR, 'backups');
 const SOM_FICHEIRO = path.join(DATA_DIR, 'som-clock.bin');
 const SOM_MAX = 600000;
 const ASSUNTO_PUSH = process.env.PUSH_ASSUNTO || 'https://porto.bcibizz.pt';
-const CONFIG_BASE = { somAtivo: true, somVolume: 70, aprovacao: false, pushNovaTarefa: true, pushTroca: true, pushLembrete: true, pushPedido: true, pushHora: '09:00' };
+const CONFIG_BASE = { somAtivo: true, somVolume: 70, abanarAtivo: true, vibrarAtivo: true, aprovacao: false, pushNovaTarefa: true, pushTroca: true, pushLembrete: true, pushPedido: true, pushHora: '09:00' };
 const MAX_APARELHOS = 1000;
 const MAX_HISTORICO = 200;
 const SESSAO_MS = 12 * 3600e3;
@@ -63,6 +63,8 @@ function configLimpa(c) {
   const bool = (k) => (typeof c[k] === 'boolean' ? c[k] : CONFIG_BASE[k]);
   return {
     somAtivo: typeof c.somAtivo === 'boolean' ? c.somAtivo : true,
+    abanarAtivo: typeof c.abanarAtivo === 'boolean' ? c.abanarAtivo : true,
+    vibrarAtivo: typeof c.vibrarAtivo === 'boolean' ? c.vibrarAtivo : true,
     somVolume: Number.isInteger(c.somVolume) && c.somVolume >= 0 && c.somVolume <= 100 ? c.somVolume : CONFIG_BASE.somVolume,
     aprovacao: c.aprovacao === true, pushNovaTarefa: bool('pushNovaTarefa'), pushTroca: bool('pushTroca'), pushLembrete: bool('pushLembrete'), pushPedido: bool('pushPedido'),
     pushHora: /^([01]\d|2[0-3]):[0-5]\d$/.test(c.pushHora) ? c.pushHora : CONFIG_BASE.pushHora,
@@ -461,6 +463,7 @@ async function admin(req, res, rota) {
     const nova = configLimpa({ ...db.config, ...b });
     if (!(Number.isInteger(b.somVolume) && b.somVolume >= 0 && b.somVolume <= 100)) nova.somVolume = db.config.somVolume; // valor inválido: fica o que estava
     if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(b.pushHora)) nova.pushHora = db.config.pushHora;
+    for (const k of ['aprovacao', 'somAtivo', 'abanarAtivo', 'vibrarAtivo', 'pushNovaTarefa', 'pushTroca', 'pushLembrete', 'pushPedido']) if (typeof b[k] !== 'boolean') nova[k] = db.config[k]; // interruptor: só booleanos mudam
     db.config = nova; db.textosV++; gravar(); // os aparelhos voltam a pedir os textos (e o som)
     return json(res, 200, { config: db.config });
   }
@@ -488,7 +491,7 @@ const servidor = http.createServer((req, res) => {
     if (excede('cron:' + ipDe(req), 30, 60e3)) return json(res, 429, { erro: 'Demasiados pedidos.' });
     return tickLembretes().then((n) => json(res, 200, { enviados: n })).catch(() => json(res, 500, { erro: 'Erro interno.' }));
   }
-  if (caminho === '/api/textos' && req.method === 'GET') return json(res, 200, { tv: db.textosV, textos: db.textos, fx: { som: db.config.somAtivo, vol: db.config.somVolume, custom: db.som ? db.som.v : 0 } });
+  if (caminho === '/api/textos' && req.method === 'GET') return json(res, 200, { tv: db.textosV, textos: db.textos, fx: { som: db.config.somAtivo, vol: db.config.somVolume, abanar: db.config.abanarAtivo, vibrar: db.config.vibrarAtivo, custom: db.som ? db.som.v : 0 } });
   if (caminho === '/api/som' && req.method === 'GET') {
     if (!db.som) return json(res, 404, { erro: 'Sem som personalizado.' });
     return fs.readFile(SOM_FICHEIRO, (err, dados) => {

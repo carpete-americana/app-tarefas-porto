@@ -134,6 +134,25 @@
     ['egg.emojis', 'Segredo: emojis que caem', '🧽🧹🧼🫧✨🧻🪣🎉'],
     ['sobre.rodape', 'Definições: rodapé', ['Feito com ☕ e pouco respeito pelo pó.', 'Nenhum esfregão foi maltratado neste projeto 🧽', 'Se chegaste aqui, já procuraste demais. Carrega 7 vezes na versão 👀', 'Contém vestígios de humor duvidoso.']],
   ]);
+  G('Efeitos e easter eggs', [
+    ['fx.emojisTarefa', 'Chuva ao concluir uma tarefa: emojis', '💅💅🏻💅🏽💅🏿✨💖🌈💄👠🪩🎀'],
+    ['fx.emojisDia', 'Chuva ao completar o dia: emojis', '💅💅🏻💅🏼💅🏽💅🏾💅🏿✨💖🌈👑💃🪩🦄🏳️‍🌈'],
+    ['fx.emojisTudo', 'Chuva ao completar TUDO: emojis', '🏳️‍🌈🏳️‍⚧️💅💅🏻💅🏽💅🏿🌈👑💃🕺🪩💖✨🦄💄👠🎀🔥💋'],
+    ['fx.emojisSemana', 'Chuva ao completar a semana: emojis', '🏳️‍🌈💅🌈👑🪩💃🦄✨💖🔥💎🏆'],
+    ['fx.relogio', 'Emojis que abanam de cada lado do texto (sorteia-se um para cada lado)', ['💅', '💅🏻', '💅🏽', '💅🏿', '💃', '👑', '🦄', '🌈', '💖', '🪩']],
+    ['fx.clock', 'Texto ao completar o dia', 'CLOCK IIIIIT'],
+    ['fx.tudo', 'Texto ao completar TUDO (por baixo do anterior)', 'ZERO DESCULPAS. LENDÁRIO. 🗿'],
+    ['fx.semana', 'Texto ao completar a semana toda', 'LOCKED IN 🔒 SEMANA COMPLETA'],
+    ['fx.combo3', 'Combo: 3 tarefas seguidas', 'COMBO x3 🔥'],
+    ['fx.combo5', 'Combo: 5 tarefas seguidas', 'PARA. ESTÁS A ASSUSTAR-NOS 😨'],
+    ['fx.combo8', 'Combo: 8 tarefas seguidas', 'ISTO JÁ É CRIME 🚨'],
+    ['fx.desmarcou', 'Ao desmarcar uma tarefa (de vez em quando)', ['Desmarcou? Cringe 😬', 'Arrependimento em 3… 2… 1… 📉', 'Ah, era mentira? Clássico 🤡', 'Skill issue 💀', 'Tens a certeza? Ninguém te viu a fazer 👀']],
+    ['fx.noite', 'Tarefa concluída de madrugada (de vez em quando)', ['{hora}h?? Vai dormir, personagem secundária 🧟', 'A esfregar às {hora}h? Isto é vício 🌙', 'Ninguém limpa às {hora}h. Nem os vilões 🦇']],
+    ['fx.marcos', 'Marcos de tarefas concluídas (uma linha por marco: número|texto)', ['10|10 tarefas. Já deu para aquecer 🔥', '50|50 tarefas. Isto já é rotina, não hobby 🫠', '100|100 TAREFAS. Podias ter arranjado um emprego 💼', '250|250. Chama-se dependência e chama-se limpar 🧽', '500|500. Vives num anúncio de detergente 🫧']],
+    ['fx.procura', 'Pesquisa de tarefas: respostas a gozar (uma linha por resposta: palavra|resposta)', ['sofá|Sofá não é tarefa. Sofá é estilo de vida 🛋️ (bela tentativa)', 'sofa|Sofá não é tarefa. Sofá é estilo de vida 🛋️ (bela tentativa)', 'netflix|Netflix não conta como tarefa. Nem como personalidade 📺', 'dormir|Dormir não é tarefa. Mas é a tua favorita 😴', 'preguiça|Preguiça não está na lista. Mas tens um cargo honorário 🦥', 'nada|«Nada» já tem muito de ti. Não está na lista 🕳️', 'férias|Férias não entram em tarefas. Sonhar acordado também não ☀️', 'desculpa|Aqui não vendemos desculpas. (Vai às Estatísticas 🤫)']],
+    ['fx.logo', 'Segredo: 5 toques no título da app', 'SIGMA GRINDSET 🐺'],
+    ['fx.logoEmojis', 'Segredo do título: emojis', '🗿🐺💪🔥'],
+  ]);
   G('Diálogo de tarefa', [
     ['dlg.nova', 'Título: nova tarefa', 'Nova tarefa'],
     ['dlg.editar', 'Título: editar tarefa', 'Editar tarefa'],

@@ -127,6 +127,16 @@ main,.card,.grow,.item>div,.item label{min-width:0}
 nav.tabs button{min-width:0;white-space:nowrap}
 nav.tabs button .l.cut{overflow:hidden;text-overflow:ellipsis;max-width:100%}
 .ativ .quem{font-weight:700}
+.fxbanner{position:fixed;left:0;right:0;top:32%;z-index:90;display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center;pointer-events:none;font-weight:900;font-size:clamp(30px,10vw,64px);line-height:1.05;letter-spacing:.02em;color:#fff;text-shadow:0 3px 0 #4f46e5,0 0 24px rgba(99,102,241,.95),0 6px 30px rgba(0,0,0,.55);padding:0 12px;animation:pop .5s cubic-bezier(.2,1.6,.4,1) both,tremer .12s linear .5s 8}
+.fxbanner .linha{display:flex;align-items:center;justify-content:center;gap:.3em;flex-wrap:wrap}
+.fxbanner small{display:block;font-size:.4em;letter-spacing:.05em}
+.fxbanner .spin{display:inline-block;animation:balancar .45s ease-in-out infinite alternate}
+.fxbanner b{text-shadow:none;background:linear-gradient(90deg,#ff2d95,#ff9500,#ffe600,#34c759,#0a84ff,#bf5af2,#ff2d95);background-size:200% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;-webkit-text-fill-color:transparent;filter:drop-shadow(0 3px 0 rgba(0,0,0,.4)) drop-shadow(0 0 14px rgba(255,255,255,.6));animation:arcoiris 1.4s linear infinite;overflow-wrap:anywhere}
+.fxbanner.sai{opacity:0;transition:opacity .4s}
+@keyframes pop{from{transform:scale(.2) rotate(-8deg);opacity:0}to{transform:scale(1) rotate(0);opacity:1}}
+@keyframes tremer{0%{transform:translateX(0)}25%{transform:translateX(-4px) rotate(-1deg)}75%{transform:translateX(4px) rotate(1deg)}100%{transform:translateX(0)}}
+@keyframes balancar{from{transform:rotate(-16deg) scale(1)}to{transform:rotate(16deg) scale(1.18)}}
+@keyframes arcoiris{to{background-position:200% 0}}
 .confete{position:fixed;top:-8vh;z-index:80;pointer-events:none;animation:cair linear forwards}
 @keyframes cair{to{transform:translateY(118vh) rotate(540deg)}}
 </style>
@@ -160,6 +170,7 @@ const TKEYS='tarefas-porto-textos';
 const TDEF=Object.fromEntries((window.TEXTOS_DEF||[]).map(d=>[d.k,d.v]));
 let TOV={};try{TOV=JSON.parse(localStorage.getItem(TKEYS)||'{}')||{}}catch(e){TOV={}}
 let tvSrv=-1;
+function tLista(k){const v=TOV[k]!==undefined?TOV[k]:TDEF[k];return Array.isArray(v)?v:[String(v??'')]}
 function tRaw(k){let v=TOV[k]!==undefined?TOV[k]:TDEF[k];if(Array.isArray(v))v=v.length?v[Math.floor(Math.random()*v.length)]:'';return v==null?k:String(v)}
 // T: HTML seguro (escapa, **negrito**; variáveis escapadas, menos as que acabam em Html). TP: texto simples.
 function T(k,vars){return esc(tRaw(k)).replace(/\*\*(.+?)\*\*/g,'<b>$1</b>').replace(/\{(\w+)\}/g,(m,n)=>vars&&vars[n]!==undefined?(/Html$/.test(n)?String(vars[n]):esc(vars[n])):m)}
@@ -366,7 +377,7 @@ const repTxt=t=>t.repeat==='wday'?TP('freq.wdayEm',{dia:dL(t.weekday||0)}):t.rep
 function listaHtml(){
   const q=(ui.q||'').trim().toLowerCase(),mon=mondayOf(today());
   const L=S.tasks.filter(t=>(ui.room==='todas'||t.room===ui.room)&&(!q||[t.title,t.note,t.room].join(' ').toLowerCase().includes(q)));
-  if(!L.length)return `<div class="empty">${T('tarefas.nenhuma')}</div>`;
+  if(!L.length){const g=respostaProcura(q);return `<div class="empty">${g?esc(g):T('tarefas.nenhuma')}</div>`}
   return [...new Set(L.map(t=>t.room))].map(r=>`<div class="card"><h3>${esc(r)}</h3>`+L.filter(t=>t.room===r).map(t=>{
     const semana=(t.who==='rota'||t.who==='rodar')?' · '+T('tarefas.estaSemana',{nomes:personsFor(t,mon).map(who).join(', ')}):'';
     return `<div class="item" style="align-items:center;opacity:${t.active?1:.5}">
@@ -484,15 +495,55 @@ function openTask(id){
 /* ---------- render / eventos ---------- */
 const $dlg=document.getElementById('dlg'),$main=document.getElementById('main');
 const TABS=[['hoje',viewHoje],['semana',viewSemana],['rot',viewRot],['tarefas',viewTarefas],['mais',viewMais]];
-function festa(){ // segredo: 7 toques na versão (Definições)
-  toast(TP('egg.msg'));
-  if(matchMedia('(prefers-reduced-motion:reduce)').matches)return;
-  const em=[...TP('egg.emojis')].filter(x=>x.trim());if(!em.length)return;
+/* ---------- efeitos e easter eggs (tudo editável no admin, grupo «Efeitos e easter eggs») ---------- */
+const FEITAS='tarefas-porto-feitas';
+const reduzMov=()=>matchMedia('(prefers-reduced-motion:reduce)').matches;
+const emojisDe=str=>{try{return [...new Intl.Segmenter(undefined,{granularity:'grapheme'}).segment(str)].map(x=>x.segment).filter(x=>x.trim())}catch(e){return [...str].filter(x=>x.trim())}}; // agrupa 🏳️‍🌈 e 💅🏽 em vez de os partir
+function chuva(str,n,grande){
+  if(reduzMov())return;
+  const em=emojisDe(str);if(!em.length)return;
+  const vivos=[...document.querySelectorAll('.confete')];if(vivos.length>160)vivos.slice(0,vivos.length-160).forEach(e=>e.remove());
   const els=[];
-  for(let i=0;i<40;i++){const e=document.createElement('span');e.className='confete';e.textContent=em[Math.floor(Math.random()*em.length)];
-    e.style.left=Math.random()*96+'vw';e.style.fontSize=(18+Math.random()*22)+'px';e.style.animationDuration=(2.2+Math.random()*2.4)+'s';e.style.animationDelay=(Math.random()*.9)+'s';
+  for(let i=0;i<n;i++){const e=document.createElement('span');e.className='confete';e.textContent=em[Math.floor(Math.random()*em.length)];
+    e.style.left=Math.random()*96+'vw';e.style.fontSize=((grande?24:18)+Math.random()*(grande?30:18))+'px';
+    e.style.animationDuration=(2+Math.random()*2.4)+'s';e.style.animationDelay=(Math.random()*(grande?1.2:.5))+'s';
     document.body.appendChild(e);els.push(e)}
   setTimeout(()=>els.forEach(e=>e.remove()),6500);
+}
+function banner(linhas,ms){ // linhas: HTML já seguro
+  document.querySelectorAll('.fxbanner').forEach(e=>e.remove());
+  const b=document.createElement('div');b.className='fxbanner';b.setAttribute('role','status');b.innerHTML=linhas;document.body.appendChild(b);
+  setTimeout(()=>b.classList.add('sai'),ms-400);setTimeout(()=>b.remove(),ms);
+}
+const relogio=()=>`<span class="spin">${esc(TP('fx.relogio'))}</span>`;
+function festa(){toast(TP('egg.msg'));chuva(TP('egg.emojis'),40)} // 7 toques na versão (Definições)
+let logoToques=null;
+function efeitosConcluir(chave){
+  const agora=Date.now();
+  let total=0;try{total=Number(localStorage.getItem(FEITAS)||0)+1;localStorage.setItem(FEITAS,String(total))}catch(e){}
+  ui.combo=(ui.combo||[]).filter(t=>agora-t<6000);ui.combo.push(agora);
+  // "dia" = tudo o que vence hoje; "tudo" = a lista inteira da página Hoje; "semana" = a semana toda. Sempre para o filtro escolhido.
+  const now=today(),mon=mondayOf(now);
+  const occ=genWeek(mon).filter(o=>!o.optional&&(ui.filter===-1||o.p===ui.filter));
+  if(occ.some(o=>o.key===chave)){
+    const hoje=occ.filter(o=>o.kind==='day'&&fmt(o.date)===fmt(now)),lista=occ.filter(o=>o.kind==='week'||fmt(o.date)===fmt(now));
+    if(occ.every(isDone)){chuva(TP('fx.emojisSemana'),110,true);banner(`<div class="linha"><b>${esc(TP('fx.semana'))}</b></div>`,3400);return}
+    if(lista.length&&lista.every(isDone)){chuva(TP('fx.emojisTudo'),100,true);banner(`<div class="linha">${relogio()}<b>${esc(TP('fx.clock'))}</b>${relogio()}</div><small>${esc(TP('fx.tudo'))}</small>`,3600);return}
+    if(hoje.length&&hoje.every(isDone)){chuva(TP('fx.emojisDia'),80,true);banner(`<div class="linha">${relogio()}<b>${esc(TP('fx.clock'))}</b>${relogio()}</div>`,3000);return}
+  }
+  chuva(TP('fx.emojisTarefa'),14);
+  const c={3:'fx.combo3',5:'fx.combo5',8:'fx.combo8'}[ui.combo.length];
+  if(c){banner(`<div class="linha"><b>${esc(TP(c))}</b></div>`,1900);return}
+  const marco=tLista('fx.marcos').map(l=>l.split('|')).find(([n])=>Number(n)===total);
+  if(marco&&marco[1]){toast(marco.slice(1).join('|'));return}
+  const h=new Date().getHours();
+  if(h<5&&Math.random()<.34)toast(TP('fx.noite',{hora:h}));
+}
+function respostaProcura(q){ // pesquisas a gozar (linhas «palavra|resposta»)
+  const norm=x=>x.normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().trim();
+  const n=norm(q);if(!n)return '';
+  for(const l of tLista('fx.procura')){const [k,...r]=l.split('|');if(k&&r.length&&n.includes(norm(k)))return r.join('|')}
+  return '';
 }
 let desfazer=null,toastT=null;
 function toast(msg,undo){const t=document.getElementById('toast');desfazer=undo||null;t.innerHTML=`<span>${esc(msg)}</span>${undo?`<button data-act="undo">${T('toast.desfazer')}</button>`:''}`;t.className='on';clearTimeout(toastT);toastT=setTimeout(()=>{t.className='';desfazer=null},8000)}
@@ -522,7 +573,7 @@ document.addEventListener('click',e=>{
   if(a==='tab'){ui.tab=b.dataset.t;window.scrollTo(0,0);render()}
   else if(a==='filter'){ui.filter=Number(b.dataset.i);try{localStorage.setItem(FKEY,ui.filter)}catch(e){}render();hello()}
   else if(a==='wk'){const d=Number(b.dataset.d);ui.week=d===0?mondayOf(today()):addDays(ui.week,7*d);render()}
-  else if(a==='toggle'){const k=b.dataset.k;if(S.done[k])delete S.done[k];else S.done[k]=1;save();render();op({op:'marcar',chave:k,valor:!!S.done[k]})}
+  else if(a==='toggle'){const k=b.dataset.k;if(S.done[k])delete S.done[k];else S.done[k]=1;save();render();op({op:'marcar',chave:k,valor:!!S.done[k]});if(S.done[k])efeitosConcluir(k);else if(Math.random()<.3)toast(TP('fx.desmarcou'))}
   else if(a==='days'){const k=b.dataset.dk;ui.dayOpen[k]=!ui.dayOpen[k];render()}
   else if(a==='sub'){ui.sub=b.dataset.k;render()}
   else if(a==='room'){ui.room=b.dataset.r;render()}
@@ -546,6 +597,11 @@ document.addEventListener('click',e=>{
   else if(a==='import')document.getElementById('file').click();
   else if(a==='clearDone'){if(b.dataset.arm){const prev={...S.done};S.done={};save();render();op({op:'limpar'});toast(TP('toast.limpas'),()=>{S.done=prev;save();render();op({op:'substituir',estado:estadoLocal()})})}else{b.dataset.arm=1;b.textContent=TP('mais.confirmarLimpar')}}
   else if(a==='reset'){if(b.dataset.arm){const p=S.people,prev=JSON.parse(JSON.stringify(estadoLocal()));S=freshState();S.people=p;save();render();op({op:'substituir',estado:estadoLocal()});toast(TP('toast.repostas'),()=>{CAMPOS.forEach(c=>{S[c]=prev[c]});save();render();op({op:'substituir',estado:estadoLocal()})})}else{b.dataset.arm=1;b.textContent=TP('mais.confirmarRepor')}}
+});
+document.addEventListener('click',e=>{ // segredo: 5 toques no título da app
+  if(!e.target.closest('header h1'))return;
+  const n=Date.now();logoToques=(logoToques&&n-logoToques.t<3000)?{n:logoToques.n+1,t:logoToques.t}:{n:1,t:n};
+  if(logoToques.n>=5){logoToques=null;chuva(TP('fx.logoEmojis'),70,true);banner(`<div class="linha"><b>${esc(TP('fx.logo'))}</b></div>`,2800)}
 });
 document.addEventListener('input',e=>{if(e.target.dataset&&e.target.dataset.act==='q'){ui.q=e.target.value;const l=document.getElementById('lista');if(l)l.innerHTML=listaHtml()}});
 $dlg.addEventListener('click',e=>{const r=$dlg.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)$dlg.close()});

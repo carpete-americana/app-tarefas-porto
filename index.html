@@ -152,6 +152,7 @@ nav.tabs button .l.cut{overflow:hidden;text-overflow:ellipsis;max-width:100%}
 <div id="toast" role="status" aria-live="polite"></div>
 <input type="file" id="file" accept=".json,application/json" hidden>
 <script src="textos.js"></script>
+<script src="som.js"></script>
 <script>
 'use strict';
 /* ---------- helpers ---------- */
@@ -170,6 +171,11 @@ const TKEYS='tarefas-porto-textos';
 const TDEF=Object.fromEntries((window.TEXTOS_DEF||[]).map(d=>[d.k,d.v]));
 let TOV={};try{TOV=JSON.parse(localStorage.getItem(TKEYS)||'{}')||{}}catch(e){TOV={}}
 let tvSrv=-1;
+const FXKEY='tarefas-porto-fx';
+let FX={som:true,vol:70,custom:0};try{FX={...FX,...JSON.parse(localStorage.getItem(FXKEY)||'{}')}}catch(e){}
+const urlSom=()=>FX.custom?'/api/som?v='+FX.custom:'';
+function precarregarSom(){if(window.SomTP&&FX.custom)SomTP.precarregar(urlSom())}
+function tocarSom(nivel){if(FX.som&&window.SomTP)SomTP.tocar(nivel,(FX.vol??70)/100,urlSom())} // nível 1 = dia, 2 = tudo, 3 = semana
 function tLista(k){const v=TOV[k]!==undefined?TOV[k]:TDEF[k];return Array.isArray(v)?v:[String(v??'')]}
 function tRaw(k){let v=TOV[k]!==undefined?TOV[k]:TDEF[k];if(Array.isArray(v))v=v.length?v[Math.floor(Math.random()*v.length)]:'';return v==null?k:String(v)}
 // T: HTML seguro (escapa, **negrito**; variáveis escapadas, menos as que acabam em Html). TP: texto simples.
@@ -181,6 +187,7 @@ async function carregarTextos(){
   if(!/^https?:$/.test(location.protocol))return;
   try{const r=await fetch('/api/textos',{cache:'no-store'});if(!r.ok)return;const j=await r.json();
     TOV=j.textos||{};tvSrv=j.tv;try{localStorage.setItem(TKEYS,JSON.stringify(TOV))}catch(e){}
+    if(j.fx){FX=j.fx;try{localStorage.setItem(FXKEY,JSON.stringify(FX))}catch(e){}precarregarSom()}
     if(typeof renderSeguro==='function'&&bloqueado===false&&estadoServ==='ativo')renderSeguro()}catch(e){}
 }
 const pad=n=>String(n).padStart(2,'0');
@@ -527,9 +534,9 @@ function efeitosConcluir(chave){
   const occ=genWeek(mon).filter(o=>!o.optional&&(ui.filter===-1||o.p===ui.filter));
   if(occ.some(o=>o.key===chave)){
     const hoje=occ.filter(o=>o.kind==='day'&&fmt(o.date)===fmt(now)),lista=occ.filter(o=>o.kind==='week'||fmt(o.date)===fmt(now));
-    if(occ.every(isDone)){chuva(TP('fx.emojisSemana'),110,true);banner(`<div class="linha"><b>${esc(TP('fx.semana'))}</b></div>`,3400);return}
-    if(lista.length&&lista.every(isDone)){chuva(TP('fx.emojisTudo'),100,true);banner(`<div class="linha">${relogio()}<b>${esc(TP('fx.clock'))}</b>${relogio()}</div><small>${esc(TP('fx.tudo'))}</small>`,3600);return}
-    if(hoje.length&&hoje.every(isDone)){chuva(TP('fx.emojisDia'),80,true);banner(`<div class="linha">${relogio()}<b>${esc(TP('fx.clock'))}</b>${relogio()}</div>`,3000);return}
+    if(occ.every(isDone)){tocarSom(3);chuva(TP('fx.emojisSemana'),110,true);banner(`<div class="linha"><b>${esc(TP('fx.semana'))}</b></div>`,3400);return}
+    if(lista.length&&lista.every(isDone)){tocarSom(2);chuva(TP('fx.emojisTudo'),100,true);banner(`<div class="linha">${relogio()}<b>${esc(TP('fx.clock'))}</b>${relogio()}</div><small>${esc(TP('fx.tudo'))}</small>`,3600);return}
+    if(hoje.length&&hoje.every(isDone)){tocarSom(1);chuva(TP('fx.emojisDia'),80,true);banner(`<div class="linha">${relogio()}<b>${esc(TP('fx.clock'))}</b>${relogio()}</div>`,3000);return}
   }
   chuva(TP('fx.emojisTarefa'),14);
   const c={3:'fx.combo3',5:'fx.combo5',8:'fx.combo8'}[ui.combo.length];

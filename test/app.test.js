@@ -334,3 +334,36 @@ test('admin: ícone, manifest próprio e cabeçalhos', async () => {
   const h = await (await fetch(base + '/admin')).text();
   assert.match(h, /rel="icon"/); assert.match(h, /rel="apple-touch-icon" href="\/admin-180.png"/); assert.match(h, /rel="manifest" href="\/admin.webmanifest"/);
 });
+
+/* ---------- som do CLOCK IIIIIT ---------- */
+test('som: configuração, envio de áudio próprio (validado pelos bytes), remoção', async () => {
+  const fx = async () => (await (await fetch(base + '/api/textos')).json());
+  const antes = await fx();
+  assert.deepStrictEqual(antes.fx, { som: true, vol: 70, custom: 0 }, 'por omissão: ligado, volume 70, sem áudio próprio');
+  assert.strictEqual((await fetch(base + '/api/som')).status, 404);
+  // config: volume e interruptor, com validação; cada mudança avisa os aparelhos (versão dos textos)
+  await adm('/api/admin/config', { somAtivo: false, somVolume: 40 });
+  const c = await fx(); assert.deepStrictEqual([c.fx.som, c.fx.vol], [false, 40]); assert.ok(c.tv > antes.tv);
+  await adm('/api/admin/config', { somVolume: 250, somAtivo: true });
+  assert.strictEqual((await fx()).fx.vol, 40, 'volume fora de 0–100 é ignorado');
+  // áudio próprio
+  const mp3 = Buffer.concat([Buffer.from('ID3'), Buffer.from([4, 0, 0, 0, 0, 0, 0]), Buffer.alloc(2000, 7)]);
+  const env = (b, nome) => adm('/api/admin/som', { nome, dados: b.toString('base64') });
+  assert.strictEqual((await post('/api/admin/som', { dados: mp3.toString('base64') })).status, 401, 'sem sessão não envia');
+  assert.strictEqual((await env(Buffer.from('isto é texto, não áudio, ainda que se chame som.mp3'), 'som.mp3')).status, 400, 'texto disfarçado é recusado');
+  assert.strictEqual((await env(Buffer.concat([Buffer.from('ID3'), Buffer.alloc(700000, 1)]), 'grande.mp3')).status, 400, 'acima de 600 KB é recusado');
+  const ok = await (await env(mp3, 'clockit.mp3')).json();
+  assert.strictEqual(ok.som.tipo, 'audio/mpeg'); assert.strictEqual(ok.som.nome, 'clockit.mp3'); assert.strictEqual(ok.som.tamanho, mp3.length);
+  const r = await fetch(base + '/api/som');
+  assert.strictEqual(r.status, 200); assert.strictEqual(r.headers.get('content-type'), 'audio/mpeg'); assert.match(r.headers.get('cache-control'), /max-age/);
+  assert.ok(Buffer.from(await r.arrayBuffer()).equals(mp3), 'devolve exatamente os bytes enviados');
+  assert.ok((await fx()).fx.custom > 0);
+  for (const [nome, b, tipo] of [['a.wav', Buffer.concat([Buffer.from('RIFF'), Buffer.alloc(4), Buffer.from('WAVE'), Buffer.alloc(50)]), 'audio/wav'], ['a.ogg', Buffer.concat([Buffer.from('OggS'), Buffer.alloc(60)]), 'audio/ogg'], ['a.m4a', Buffer.concat([Buffer.alloc(4), Buffer.from('ftypM4A '), Buffer.alloc(60)]), 'audio/mp4']])
+    assert.strictEqual((await (await env(b, nome)).json()).som.tipo, tipo, nome);
+  const dados = await (await fetch(base + '/api/admin/dados', { headers: { Cookie: cookie } })).json();
+  assert.strictEqual(dados.som.tipo, 'audio/mp4'); assert.strictEqual(dados.config.somVolume, 40);
+  // remover volta ao som original
+  await adm('/api/admin/som', { remover: true });
+  assert.strictEqual((await fetch(base + '/api/som')).status, 404); assert.strictEqual((await fx()).fx.custom, 0);
+  await adm('/api/admin/config', { somAtivo: true, somVolume: 70 });
+});

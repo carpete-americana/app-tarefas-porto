@@ -13,6 +13,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Admin">
 <meta name="theme-color" content="#1e1b4b">
+<script src="/som.js"></script>
 <style>
 :root{--bg:#f6f7fb;--card:#fff;--ink:#1c1d2b;--mute:#6b6f85;--line:#e4e6f0;--pri:#4f46e5;--pri-ink:#fff;--ok:#16a34a;--warn:#d97706;--bad:#dc2626;--chip:#eef0f8;color-scheme:light}
 @media(prefers-color-scheme:dark){:root{--bg:#0f1017;--card:#181a25;--ink:#eceef7;--mute:#9297b0;--line:#2a2d3d;--pri:#818cf8;--pri-ink:#0f1017;--chip:#232636;color-scheme:dark}}
@@ -86,7 +87,7 @@ details.grp>summary .n{margin-left:auto;font-weight:400;color:var(--mute);font-s
   </div>
   <div id="painel" hidden>
     <div class="top"><h1 class="grow">Aparelhos</h1><span class="muted" id="upd"></span><a class="btn sm" href="/api/admin/backup" download style="text-decoration:none;color:inherit;display:inline-flex;align-items:center">Exportar</a><button class="btn sm" id="atualizar">Atualizar</button><button class="btn sm" id="sair">Sair</button></div>
-    <div class="seg" id="abas" role="tablist"><button role="tab" data-v="aparelhos" aria-selected="true">Aparelhos</button><button role="tab" data-v="textos" aria-selected="false">Textos</button><button role="tab" data-v="notif" aria-selected="false">Notificações</button></div>
+    <div class="seg" id="abas" role="tablist"><button role="tab" data-v="aparelhos" aria-selected="true">Aparelhos</button><button role="tab" data-v="textos" aria-selected="false">Textos</button><button role="tab" data-v="notif" aria-selected="false">Notificações</button><button role="tab" data-v="fx" aria-selected="false">Efeitos</button></div>
     <div id="v-aparelhos">
     <div class="tiles" id="tiles"></div>
     <div class="card"><label class="sw"><input type="checkbox" id="aprov"><span><b>Exigir aprovação de aparelhos novos</b><br><span class="muted">Desligado: entram logo. Ligado: ficam «pendentes» até os aprovares. Os que já existem não são afetados.</span></span></label></div>
@@ -98,6 +99,16 @@ details.grp>summary .n{margin-left:auto;font-weight:400;color:var(--mute);font-s
       <div id="lista"></div>
     </div>
     <div class="card"><b>Atividade recente</b><div id="ativ" style="margin-top:6px"></div></div>
+    </div>
+    <div id="v-fx" hidden>
+      <div class="card"><b>Som do CLOCK IIIIIT</b><p class="muted" style="margin:2px 0 12px">Toca quando alguém completa o dia (som curto), tudo (mais longo) ou a semana (o maior). Nos telemóveis só toca depois de a pessoa tocar no ecrã, e no iPhone o interruptor de silêncio pode calá-lo.</p>
+        <label class="sw" style="margin-bottom:14px"><input type="checkbox" id="c-som"><span><b>Tocar som</b><br><span class="muted">Desliga para as pessoas não serem incomodadas.</span></span></label>
+        <div class="row" style="margin-bottom:14px"><span>Volume</span><input type="range" id="c-vol" min="0" max="100" step="5" style="flex:1;min-width:140px"><b id="vol-n" style="min-width:44px;text-align:right"></b></div>
+        <div class="row"><button class="btn" data-ouvir="1">▶ Dia</button><button class="btn" data-ouvir="2">▶ Tudo</button><button class="btn" data-ouvir="3">▶ Semana</button></div></div>
+      <div class="card"><b>O teu próprio som</b><p class="muted" style="margin:2px 0 10px">Por omissão toca um som feito de raiz (sinos, um «iiiit» a subir e um acorde). Se preferires outro, por exemplo o da trend, carrega um ficheiro teu: mp3, wav, ogg ou m4a, até 600 KB. Tem de ser um som que possas usar.</p>
+        <p id="somInfo" style="margin:0 0 10px"></p>
+        <div class="row"><input type="file" id="somFicheiro" accept="audio/*,.mp3,.wav,.ogg,.m4a" style="max-width:100%"><button class="btn bad sm" id="somRemover" hidden>Voltar ao som original</button></div>
+        <p class="muted" id="somRes" role="status" style="margin:8px 0 0"></p></div>
     </div>
     <div id="v-notif" hidden>
       <div class="card"><b>Quando enviar notificações</b><p class="muted" style="margin:2px 0 12px" id="pinfo"></p>
@@ -144,6 +155,10 @@ function desenhar(){
   const A=D.aparelhos,n=(f)=>A.filter(f).length;
   $('#upd').textContent='atualizado '+new Date().toLocaleTimeString('pt-PT',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
   $('#aprov').checked=!!D.config.aprovacao;
+  $('#c-som').checked=!!D.config.somAtivo;if(document.activeElement!==$('#c-vol'))$('#c-vol').value=D.config.somVolume;$('#vol-n').textContent=$('#c-vol').value+'%';
+  $('#somInfo').innerHTML=D.som?'Som carregado: <b>'+esc(D.som.nome)+'</b> ('+Math.max(1,Math.round(D.som.tamanho/1024))+' KB)':'Nenhum carregado: a usar o som original.';
+  $('#somRemover').hidden=!D.som;
+  if(D.som&&window.SomTP)SomTP.precarregar('/api/som?v='+D.som.v);
   const cf=D.config;$('#c-nova').checked=!!cf.pushNovaTarefa;$('#c-troca').checked=!!cf.pushTroca;$('#c-lembrete').checked=!!cf.pushLembrete;$('#c-pedido').checked=!!cf.pushPedido;
   if(document.activeElement!==$('#phora'))$('#phora').value=cf.pushHora;
   $('#pinfo').textContent=A.filter(a=>a.push).length+' aparelho(s) com notificações ativas.';
@@ -167,6 +182,15 @@ $('#lf').onsubmit=async e=>{e.preventDefault();$('#lerr').textContent='';
   try{await api('/api/admin/login',{password:$('#pw').value});$('#pw').value='';await carregar();timer=setInterval(carregar,20000)}
   catch(err){$('#lerr').textContent=err.message}};
 const cfg=async o=>{try{await api('/api/admin/config',o);await carregar()}catch(e){alert(e.message);await carregar()}};
+$('#c-som').onchange=e=>cfg({somAtivo:e.target.checked});
+$('#c-vol').oninput=e=>{$('#vol-n').textContent=e.target.value+'%'};$('#c-vol').onchange=e=>cfg({somVolume:Number(e.target.value)});
+document.querySelectorAll('[data-ouvir]').forEach(b=>b.onclick=()=>{if(window.SomTP)SomTP.tocar(Number(b.dataset.ouvir),Number($('#c-vol').value)/100,D.som?'/api/som?v='+D.som.v:'')});
+$('#somFicheiro').onchange=e=>{
+  const f=e.target.files[0];if(!f)return;$('#somRes').style.color='var(--mute)';$('#somRes').textContent='';
+  if(f.size>600000){$('#somRes').style.color='var(--bad)';$('#somRes').textContent='O ficheiro tem '+Math.round(f.size/1024)+' KB; o máximo é 600 KB.';e.target.value='';return}
+  const r=new FileReader();r.onload=async()=>{try{await api('/api/admin/som',{nome:f.name,dados:String(r.result).split(',')[1]});$('#somRes').style.color='var(--ok)';$('#somRes').textContent='Guardado. Os telemóveis apanham-no em poucos segundos.';await carregar()}catch(err){$('#somRes').style.color='var(--bad)';$('#somRes').textContent=err.message}e.target.value=''};r.readAsDataURL(f);
+};
+$('#somRemover').onclick=async()=>{try{await api('/api/admin/som',{remover:true});$('#somRes').textContent='';await carregar()}catch(err){alert(err.message)}};
 $('#c-nova').onchange=e=>cfg({pushNovaTarefa:e.target.checked});$('#c-troca').onchange=e=>cfg({pushTroca:e.target.checked});
 $('#c-lembrete').onchange=e=>cfg({pushLembrete:e.target.checked});$('#c-pedido').onchange=e=>cfg({pushPedido:e.target.checked});
 $('#phora').onchange=e=>{if(e.target.value)cfg({pushHora:e.target.value})};
@@ -194,7 +218,7 @@ document.addEventListener('click',async e=>{
 /* ---------- separadores + textos ---------- */
 let TX=null,pend={},abaAtual='aparelhos';
 const eq=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
-function mostrarAba(v){abaAtual=v;document.querySelectorAll('#abas button').forEach(b=>b.setAttribute('aria-selected',String(b.dataset.v===v)));$('#v-aparelhos').hidden=v!=='aparelhos';$('#v-textos').hidden=v!=='textos';$('#v-notif').hidden=v!=='notif';if(v==='textos'&&!TX)carregarTextos()}
+function mostrarAba(v){abaAtual=v;document.querySelectorAll('#abas button').forEach(b=>b.setAttribute('aria-selected',String(b.dataset.v===v)));$('#v-aparelhos').hidden=v!=='aparelhos';$('#v-textos').hidden=v!=='textos';$('#v-notif').hidden=v!=='notif';$('#v-fx').hidden=v!=='fx';if(v==='textos'&&!TX)carregarTextos()}
 $('#abas').onclick=e=>{const b=e.target.closest('[data-v]');if(b)mostrarAba(b.dataset.v)};
 const guardado=d=>TX.textos[d.k]!==undefined?TX.textos[d.k]:d.v;
 const atual=d=>pend[d.k]!==undefined?pend[d.k]:guardado(d);

@@ -12,8 +12,10 @@ const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const FICHEIRO_DADOS = path.join(DATA_DIR, 'aparelhos.json');
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
 const BACKUPS_DIR = path.join(DATA_DIR, 'backups');
+const SOM_FICHEIRO = path.join(DATA_DIR, 'som-clock.bin');
+const SOM_MAX = 600000;
 const ASSUNTO_PUSH = process.env.PUSH_ASSUNTO || 'https://porto.bcibizz.pt';
-const CONFIG_BASE = { aprovacao: false, pushNovaTarefa: true, pushTroca: true, pushLembrete: true, pushPedido: true, pushHora: '09:00' };
+const CONFIG_BASE = { somAtivo: true, somVolume: 70, aprovacao: false, pushNovaTarefa: true, pushTroca: true, pushLembrete: true, pushPedido: true, pushHora: '09:00' };
 const MAX_APARELHOS = 1000;
 const MAX_HISTORICO = 200;
 const SESSAO_MS = 12 * 3600e3;
@@ -30,6 +32,7 @@ const FICHEIROS = {
   '/manifest.webmanifest': ['manifest.webmanifest', 'application/manifest+json; charset=utf-8'],
   '/sw.js': ['sw.js', JS],
   '/textos.js': ['textos.js', JS],
+  '/som.js': ['som.js', JS],
   '/admin.webmanifest': ['admin.webmanifest', 'application/manifest+json; charset=utf-8'],
   '/admin-180.png': ['admin-180.png', PNG],
   '/admin-192.png': ['admin-192.png', PNG],
@@ -41,12 +44,13 @@ const FICHEIROS = {
 
 /* ---------- dados ---------- */
 const PESSOAS_BASE = ['Sofia', 'Leonor', 'Francisco'];
-let db = { config: { ...CONFIG_BASE }, aparelhos: {}, pessoas: PESSOAS_BASE.slice(), estado: null, versao: 0, historico: [], textos: {}, textosV: 1 };
+let db = { som: null, config: { ...CONFIG_BASE }, aparelhos: {}, pessoas: PESSOAS_BASE.slice(), estado: null, versao: 0, historico: [], textos: {}, textosV: 1 };
 let estadoCru = null;
 try {
   const j = JSON.parse(fs.readFileSync(FICHEIRO_DADOS, 'utf8'));
   if (j && typeof j === 'object') {
-    db = { config: configLimpa(j.config), aparelhos: j.aparelhos && typeof j.aparelhos === 'object' ? j.aparelhos : {},
+    db = { som: j.som && typeof j.som === 'object' && fs.existsSync(SOM_FICHEIRO) ? { tipo: String(j.som.tipo), nome: String(j.som.nome).slice(0, 80), tamanho: Number(j.som.tamanho) || 0, v: Number(j.som.v) || 1 } : null,
+      config: configLimpa(j.config), aparelhos: j.aparelhos && typeof j.aparelhos === 'object' ? j.aparelhos : {},
       pessoas: Array.isArray(j.pessoas) && j.pessoas.length === 3 ? j.pessoas.map((n, i) => String(n).slice(0, 20) || PESSOAS_BASE[i]) : PESSOAS_BASE.slice(), estado: null, versao: Number.isInteger(j.versao) ? j.versao : 0,
       textos: j.textos && typeof j.textos === 'object' ? j.textos : {}, textosV: Number.isInteger(j.textosV) ? j.textosV : 1,
       historico: Array.isArray(j.historico) ? j.historico.filter((h) => h && typeof h.t === 'number' && typeof h.texto === 'string').slice(0, MAX_HISTORICO) : [] };
@@ -58,6 +62,8 @@ function configLimpa(c) {
   c = c && typeof c === 'object' ? c : {};
   const bool = (k) => (typeof c[k] === 'boolean' ? c[k] : CONFIG_BASE[k]);
   return {
+    somAtivo: typeof c.somAtivo === 'boolean' ? c.somAtivo : true,
+    somVolume: Number.isInteger(c.somVolume) && c.somVolume >= 0 && c.somVolume <= 100 ? c.somVolume : CONFIG_BASE.somVolume,
     aprovacao: c.aprovacao === true, pushNovaTarefa: bool('pushNovaTarefa'), pushTroca: bool('pushTroca'), pushLembrete: bool('pushLembrete'), pushPedido: bool('pushPedido'),
     pushHora: /^([01]\d|2[0-3]):[0-5]\d$/.test(c.pushHora) ? c.pushHora : CONFIG_BASE.pushHora,
   };
@@ -103,6 +109,16 @@ function textoValido(k, v) {
   return um(v);
 }
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+function tipoAudio(b) { // só se aceita o que realmente é áudio (pelos primeiros bytes), nunca pelo nome ou tipo declarado
+  if (b.length < 12) return null;
+  const txt = (i, n) => b.subarray(i, i + n).toString('latin1');
+  if (txt(0, 3) === 'ID3' || (b[0] === 0xff && (b[1] & 0xe0) === 0xe0)) return 'audio/mpeg';
+  if (txt(0, 4) === 'OggS') return 'audio/ogg';
+  if (txt(0, 4) === 'RIFF' && txt(8, 4) === 'WAVE') return 'audio/wav';
+  if (txt(4, 4) === 'ftyp') return 'audio/mp4';
+  if (b[0] === 0x1a && b[1] === 0x45 && b[2] === 0xdf && b[3] === 0xa3) return 'audio/webm';
+  return null;
+}
 const sha = (s) => crypto.createHash('sha256').update(String(s)).digest();
 
 function plataformaDe(ua) {
@@ -389,7 +405,7 @@ async function admin(req, res, rota) {
     return json(res, 200, { ok: true }, { 'Set-Cookie': 'tp_admin=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0' });
   }
   if (rota === '/api/admin/dados' && req.method === 'GET') {
-    return json(res, 200, { agora: Date.now(), config: db.config, pessoas: db.pessoas, aparelhos: Object.values(db.aparelhos).map((a) => ({ ...a, push: !!a.push })).sort((x, y) => y.ultimo - x.ultimo) });
+    return json(res, 200, { agora: Date.now(), config: db.config, pessoas: db.pessoas, som: db.som, aparelhos: Object.values(db.aparelhos).map((a) => ({ ...a, push: !!a.push })).sort((x, y) => y.ultimo - x.ultimo) });
   }
   if (rota === '/api/admin/textos' && req.method === 'GET') return json(res, 200, { def: TEXTOS.DEF, grupos: TEXTOS.GRUPOS, textos: db.textos, tv: db.textosV });
   if (rota === '/api/admin/atividade' && req.method === 'GET') return json(res, 200, { itens: db.historico });
@@ -397,7 +413,7 @@ async function admin(req, res, rota) {
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'Content-Disposition': `attachment; filename="tarefas-porto-${new Date().toISOString().slice(0, 10)}.json"` });
     return res.end(JSON.stringify({ ...db, aparelhos: Object.fromEntries(Object.entries(db.aparelhos).map(([k, a]) => [k, { ...a, push: undefined }])) }, null, 1)); // sem as chaves das subscrições push
   }
-  let b; try { b = await lerCorpo(req, 262144); } catch (e) { return json(res, 400, { erro: 'Pedido inválido.' }); }
+  let b; try { b = await lerCorpo(req, 1000000); } catch (e) { return json(res, 400, { erro: 'Pedido inválido.' }); }
   if (rota === '/api/admin/textos' && req.method === 'POST') {
     if (b.repor === 'tudo') db.textos = {};
     else if (b.alteracoes && typeof b.alteracoes === 'object') {
@@ -421,6 +437,20 @@ async function admin(req, res, rota) {
     const enviados = await notificar(alvos, { title: titulo, body: msg, tag: 'anuncio-' + Date.now() });
     return json(res, 200, { tentados: alvos.length, enviados });
   }
+  if (rota === '/api/admin/som' && req.method === 'POST') {
+    if (b.remover === true) { db.som = null; try { fs.unlinkSync(SOM_FICHEIRO); } catch (e) { /* já não existia */ } }
+    else {
+      const dados = typeof b.dados === 'string' ? Buffer.from(b.dados, 'base64') : null;
+      if (!dados || !dados.length) return json(res, 400, { erro: 'Escolhe um ficheiro de áudio.' });
+      if (dados.length > SOM_MAX) return json(res, 400, { erro: 'O ficheiro é grande demais (máximo 600 KB).' });
+      const tipo = tipoAudio(dados);
+      if (!tipo) return json(res, 400, { erro: 'Isso não parece áudio (usa mp3, wav, ogg ou m4a).' });
+      fs.mkdirSync(DATA_DIR, { recursive: true }); fs.writeFileSync(SOM_FICHEIRO, dados);
+      db.som = { tipo, nome: limpa(b.nome, 80) || 'som', tamanho: dados.length, v: Date.now() };
+    }
+    db.textosV++; gravar();
+    return json(res, 200, { som: db.som });
+  }
   if (rota === '/api/admin/pessoas' && req.method === 'POST') {
     const nomes = Array.isArray(b.pessoas) ? b.pessoas.map((n) => limpa(n, 20)) : [];
     if (nomes.length !== 3 || nomes.some((n) => !n)) return json(res, 400, { erro: 'Indica os 3 nomes.' });
@@ -428,7 +458,10 @@ async function admin(req, res, rota) {
     return json(res, 200, { pessoas: db.pessoas });
   }
   if (rota === '/api/admin/config' && req.method === 'POST') {
-    db.config = configLimpa({ ...db.config, ...b }); gravar();
+    const nova = configLimpa({ ...db.config, ...b });
+    if (!(Number.isInteger(b.somVolume) && b.somVolume >= 0 && b.somVolume <= 100)) nova.somVolume = db.config.somVolume; // valor inválido: fica o que estava
+    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(b.pushHora)) nova.pushHora = db.config.pushHora;
+    db.config = nova; db.textosV++; gravar(); // os aparelhos voltam a pedir os textos (e o som)
     return json(res, 200, { config: db.config });
   }
   if (rota === '/api/admin/aparelho' && req.method === 'POST') {
@@ -455,7 +488,15 @@ const servidor = http.createServer((req, res) => {
     if (excede('cron:' + ipDe(req), 30, 60e3)) return json(res, 429, { erro: 'Demasiados pedidos.' });
     return tickLembretes().then((n) => json(res, 200, { enviados: n })).catch(() => json(res, 500, { erro: 'Erro interno.' }));
   }
-  if (caminho === '/api/textos' && req.method === 'GET') return json(res, 200, { tv: db.textosV, textos: db.textos });
+  if (caminho === '/api/textos' && req.method === 'GET') return json(res, 200, { tv: db.textosV, textos: db.textos, fx: { som: db.config.somAtivo, vol: db.config.somVolume, custom: db.som ? db.som.v : 0 } });
+  if (caminho === '/api/som' && req.method === 'GET') {
+    if (!db.som) return json(res, 404, { erro: 'Sem som personalizado.' });
+    return fs.readFile(SOM_FICHEIRO, (err, dados) => {
+      if (err) return json(res, 404, { erro: 'Sem som personalizado.' });
+      res.writeHead(200, { 'Content-Type': db.som.tipo, 'Content-Length': dados.length, 'Cache-Control': 'public, max-age=86400', 'X-Content-Type-Options': 'nosniff' });
+      res.end(dados);
+    });
+  }
   if (caminho === '/api/saude' && req.method === 'GET') return json(res, 200, { ok: true, versao: db.versao, aparelhos: Object.keys(db.aparelhos).length });
   if (caminho === '/api/atividade' && req.method === 'GET') {
     if (excede('atividade:' + ipDe(req), 120, 60e3)) return json(res, 429, { erro: 'Demasiados pedidos.' });

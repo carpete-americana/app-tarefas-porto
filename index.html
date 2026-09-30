@@ -2,7 +2,7 @@
 <html lang="pt-PT">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#4f46e5">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -115,6 +115,11 @@ details.pcard>.body{padding:0 14px 12px}
 @media(min-width:760px){#toast{bottom:24px}}
 button:focus-visible,select:focus-visible,input:focus-visible,summary:focus-visible{outline:3px solid var(--pri);outline-offset:2px}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{transition:none!important;animation:none!important}}
+/* iPhone: um campo com letra < 16 px faz zoom ao tocar e deixa a página alargada (scroll para o lado). Por isso os campos têm 16 px
+   (menos os seletores pequenos da Semana, que ficam como estão; esses são cobertos pelo maximum-scale do viewport). */
+input:not([type=checkbox]):not([type=radio]),textarea,select:not(.sm){font-size:16px}
+html,body{touch-action:pan-y pinch-zoom} /* a página nunca anda para o lado; só os contentores com scroll próprio */
+.scroll,.sub .chips{touch-action:pan-x pan-y}
 /* Nada pode alargar a página (o iPhone alarga a janela inteira quando algo transborda) */
 html,body{overflow-x:clip;max-width:100%}
 main,.card,.grow,.item>div,.item label{min-width:0}

@@ -2,7 +2,7 @@
 <html lang="pt-PT">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
 <meta name="robots" content="noindex,nofollow">
 <meta name="color-scheme" content="light dark">
 <title>Tarefas Porto · Admin</title>
@@ -17,6 +17,9 @@
 :root{--bg:#f6f7fb;--card:#fff;--ink:#1c1d2b;--mute:#6b6f85;--line:#e4e6f0;--pri:#4f46e5;--pri-ink:#fff;--ok:#16a34a;--warn:#d97706;--bad:#dc2626;--chip:#eef0f8;color-scheme:light}
 @media(prefers-color-scheme:dark){:root{--bg:#0f1017;--card:#181a25;--ink:#eceef7;--mute:#9297b0;--line:#2a2d3d;--pri:#818cf8;--pri-ink:#0f1017;--chip:#232636;color-scheme:dark}}
 *{box-sizing:border-box}
+input:not([type=checkbox]),textarea,select{font-size:16px!important} /* iPhone: <16 px faz zoom ao tocar num campo */
+html,body{touch-action:pan-y pinch-zoom;overflow-x:clip;max-width:100%}
+.scroll{touch-action:pan-x pan-y}
 [hidden]{display:none!important}
 body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
 button,input{font:inherit;color:inherit}

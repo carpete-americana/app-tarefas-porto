@@ -262,13 +262,13 @@ test('push: tarefa nova avisa os outros; troca avisa só a pessoa; interruptores
   await op(S1.id, { op: 'tarefa', tarefa: { ...T1, id: 'tpush1', title: 'Passar a ferro', who: 'todos', repeat: 'w1' } });
   await servidor.aguardarPush();
   assert.strictEqual(antes(S1), nS, 'o autor não é avisado');
-  const m = recebidas(L).pop(); assert.match(m.body, /Passar a ferro/); assert.match(m.body, /^Sofia criou «Passar a ferro»/);
+  const m = recebidas(L).pop(); assert.match(m.body, /Passar a ferro/); assert.match(m.body, /Sofia/);
   // troca: passa a Leonor
   const nS2 = antes(S1), nL2 = antes(L);
   await op(S1.id, { op: 'troca', chave: '2026-09-28|Cozinha', valor: 1 });
   await servidor.aguardarPush();
   assert.strictEqual(antes(L), nL2 + 1, 'a pessoa recebe'); assert.strictEqual(antes(S1), nS2, 'quem trocou não recebe');
-  assert.match(recebidas(L).pop().body, /passou-te 2026-09-28|passou-te Cozinha/);
+  assert.match(recebidas(L).pop().body, /Cozinha|2026-09-28/);
   // interruptores desligados
   await adm('/api/admin/config', { pushNovaTarefa: false, pushTroca: false });
   const n3 = antes(L);
@@ -281,16 +281,16 @@ test('push: tarefa nova avisa os outros; troca avisa só a pessoa; interruptores
 
 test('push: lembrete da manhã uma vez por dia, dentro da janela; textos do admin', async () => {
   const S1 = pushAp.find((x) => x.id.startsWith('push1111'));
-  const conta = () => recebidas(S1).filter((m) => /Bom dia/.test(m.title)).length;
+  const conta = () => recebidas(S1).filter((m) => /Sofia/.test(m.title)).length;
   const c0 = conta();
   assert.strictEqual(await servidor.tickLembretes({ dia: '2030-01-01', min: 8 * 60 }), 0, 'antes das 09:00');
   assert.strictEqual(await servidor.tickLembretes({ dia: '2030-01-01', min: 16 * 60 }), 0, 'depois da janela de 6 h');
   const n = await servidor.tickLembretes({ dia: '2030-01-01', min: 9 * 60 + 5 }); assert.ok(n >= 2, 'envia aos aparelhos com pessoa');
-  assert.strictEqual(conta(), c0 + 1); assert.match(recebidas(S1).filter((m) => /Bom dia/.test(m.title)).pop().title, /^Bom dia, Sofia/);
+  assert.strictEqual(conta(), c0 + 1); assert.match(recebidas(S1).slice(-1)[0].title, /Sofia/);
   assert.strictEqual(await servidor.tickLembretes({ dia: '2030-01-01', min: 10 * 60 }), 0, 'só uma vez por dia');
   assert.ok(await servidor.tickLembretes({ dia: '2030-01-02', min: 9 * 60 }) >= 2, 'no dia seguinte volta');
   // o admin muda o texto e a hora
-  await adm('/api/admin/textos', { alteracoes: { 'notif.lembrete': ['Bora limpar!'], 'notif.lembreteTitulo': 'Ei {nome}!' } });
+  await adm('/api/admin/textos', { alteracoes: { 'notif.lembrete': ['Bora limpar!'], 'notif.lembreteTitulo': ['Ei {nome}!'] } });
   await adm('/api/admin/config', { pushHora: '07:30' });
   await servidor.tickLembretes({ dia: '2030-01-03', min: 7 * 60 + 30 });
   const ult = recebidas(S1).pop(); assert.strictEqual(ult.title, 'Ei Sofia!'); assert.strictEqual(ult.body, 'Bora limpar!');

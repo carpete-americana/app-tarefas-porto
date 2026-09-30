@@ -109,13 +109,21 @@ details.pcard>.body{padding:0 14px 12px}
 .seg{display:flex;background:var(--chip);border-radius:12px;padding:4px;gap:4px;margin-bottom:12px}
 .seg button{flex:1;border:0;background:none;border-radius:9px;padding:9px 6px;cursor:pointer;color:var(--mute);font-weight:600;min-height:40px}
 .seg button[aria-selected=true]{background:var(--card);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.15)}
-#toast{position:fixed;left:50%;transform:translate(-50%,20px);bottom:calc(env(safe-area-inset-bottom,0px) + 84px);background:#1c1d2b;color:#fff;border-radius:12px;padding:10px 10px 10px 16px;display:flex;gap:12px;align-items:center;z-index:50;opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;max-width:calc(100vw - 32px)}
+#toast{position:fixed;left:50%;width:max-content;transform:translate(-50%,20px);bottom:calc(env(safe-area-inset-bottom,0px) + 84px);background:#1c1d2b;color:#fff;border-radius:12px;padding:10px 10px 10px 16px;display:flex;gap:12px;align-items:center;z-index:50;opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;max-width:calc(100vw - 32px)}
 #toast.on{opacity:1;transform:translate(-50%,0);pointer-events:auto}
 #toast button{background:none;border:0;color:#a5b4fc;font-weight:700;cursor:pointer;padding:6px 6px;min-height:36px}
 @media(min-width:760px){#toast{bottom:24px}}
 button:focus-visible,select:focus-visible,input:focus-visible,summary:focus-visible{outline:3px solid var(--pri);outline-offset:2px}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{transition:none!important;animation:none!important}}
+/* Nada pode alargar a página (o iPhone alarga a janela inteira quando algo transborda) */
+html,body{overflow-x:clip;max-width:100%}
+main,.card,.grow,.item>div,.item label{min-width:0}
+.t,.s,.muted,.tag,.card h2,.card h3,.item label{overflow-wrap:anywhere}
+nav.tabs button{min-width:0;white-space:nowrap}
+nav.tabs button .l.cut{overflow:hidden;text-overflow:ellipsis;max-width:100%}
 .ativ .quem{font-weight:700}
+.confete{position:fixed;top:-8vh;z-index:80;pointer-events:none;animation:cair linear forwards}
+@keyframes cair{to{transform:translateY(118vh) rotate(540deg)}}
 </style>
 </head>
 <body>
@@ -383,8 +391,24 @@ function subStats(){
     if(o.kind==='day'&&o.date<now){if(diaria)diarias[o.p]++;else tarde.push(o)}
     else if(o.kind==='week'&&x.i>0)tarde.push(o);
   }));
+  const comDados=S.people.map((n,p)=>({n,p,pct:tot[p].pct})).filter(x=>tot[x.p].n>0);
+  const sig=JSON.stringify(comDados);
+  if(!ui.frases||ui.frases.sig!==sig){ // as frases só mudam quando os números mudam (não a cada atualização do ecrã)
+    const f={sig,lid:'',lan:''};
+    if(comDados.length>=2){
+      const max=Math.max(...comDados.map(x=>x.pct)),min=Math.min(...comDados.map(x=>x.pct));
+      const L=comDados.filter(x=>x.pct===max),Z=comDados.filter(x=>x.pct===min);
+      if(max>0&&L.length===1)f.lid=TP('stats.lider',{nome:L[0].n,pct:max,titulo:TP('stats.titulos')});
+      if(max>min&&Z.length===1)f.lan=TP('stats.lanterna',{nome:Z[0].n});
+    }
+    ui.frases=f;
+  }
+  if(!ui.desc)ui.desc=TP('desculpa.lista');
+  const linhas=[ui.frases.lid,ui.frases.lan].filter(x=>x&&x.trim()).map(x=>`<p style="margin:4px 0">${esc(x)}</p>`).join('');
   return `<div class="grid3">${cards}</div>
+   ${linhas?`<div class="card" style="text-align:center">${linhas}</div>`:''}
    <p class="muted" style="margin:-2px 2px 12px">${T('stats.explicacao')}</p>
+   <div class="card" style="text-align:center"><h3>${T('desculpa.titulo')}</h3><p id="desc" style="font-size:17px;margin:8px 0 12px">${esc(ui.desc)}</p><button class="btn sm" data-act="desculpa">${T('desculpa.botao')}</button><p class="muted" style="margin:10px 0 0;font-size:12px">${T('desculpa.nota')}</p></div>
    <div class="card"><h3>${T('stats.atraso')}</h3>${tarde.length?tarde.slice(0,40).map(o=>itemRow(o,{showPerson:true,showDay:true})).join('')+(tarde.length>40?`<p class="muted">${T('stats.maisN',{n:tarde.length-40})}</p>`:''):`<div class="empty" style="padding:14px">${T('stats.nadaAtraso')}</div>`}
    <p class="muted" style="margin:8px 0 0">${diarias.some(n=>n)?T('stats.diarias')+S.people.map((n,p)=>diarias[p]?esc(n)+' '+diarias[p]:'').filter(Boolean).join(' · ')+'. ':''}${T('stats.rodape')}</p></div>`;
 }
@@ -422,7 +446,7 @@ function viewMais(){
    <button class="btn" data-act="clearDone">${T('mais.limpar')}</button><button class="btn danger" data-act="reset">${T('mais.repor')}</button></div></div>
   <details class="card"><summary><b>${T('ajuda.titulo')}</b></summary><ul style="margin:10px 0 0;padding-left:20px;line-height:1.6">
    ${[1,2,3,4,5].map(n=>`<li>${T('ajuda.b'+n)}</li>`).join('')}</ul></details>
-  <div class="card"><h2>${T('sobre.titulo')}</h2><p class="muted" style="margin:0 0 10px">${T('sobre.linha',{app:TP('app.nome'),versao:VERSAO})}</p><button class="btn" data-act="atualizar">${T('sobre.atualizar')}</button></div>`;
+  <div class="card"><h2>${T('sobre.titulo')}</h2><p class="muted" style="margin:0 0 10px" data-act="egg">${T('sobre.linha',{app:TP('app.nome'),versao:VERSAO})}</p><button class="btn" data-act="atualizar">${T('sobre.atualizar')}</button><p class="muted" style="margin:12px 0 0;font-size:12.5px">${esc((ui.rodape=ui.rodape||TP('sobre.rodape')))}</p></div>`;
 }
 
 /* ---------- diálogo de tarefa ---------- */
@@ -431,13 +455,13 @@ function openTask(id){
   const rooms=[...new Set([...COMMON,'Quartos',...S.tasks.map(x=>x.room)])];
   const opt=(v,l,sel)=>`<option value="${v}" ${String(sel)===String(v)?'selected':''}>${esc(l)}</option>`;
   $dlg.innerHTML=`<form method="dialog" id="tf"><h2 style="margin-top:0">${T(id?'dlg.editar':'dlg.nova')}</h2>
-   <div class="f"><label>${T('dlg.tarefa')}</label><input type="text" name="title" required maxlength="120" value="${esc(t.title)}"></div>
+   <div class="f"><label>${T('dlg.tarefa')}</label><input type="text" name="title" required maxlength="120" placeholder="${T('dlg.tituloPh')}" value="${esc(t.title)}"></div>
    <div class="f"><label>${T('dlg.divisao')}</label><input type="text" name="room" list="rl" required maxlength="40" value="${esc(t.room)}"><datalist id="rl">${rooms.map(r=>`<option value="${esc(r)}">`).join('')}</datalist></div>
    <div class="f"><label>${T('dlg.responsavel')}</label><select name="who">${opt('rota',TP('dlg.optRota'),t.who)}${opt('quartos',TP('dlg.optQuartos'),t.who)}${opt('todos',TP('dlg.optTodos'),t.who)}${opt('rodar',TP('dlg.optRodar'),t.who)}${S.people.map((n,i)=>opt(i,n,t.who)).join('')}</select></div>
    <div class="f"><label>${T('dlg.frequencia')}</label><select name="repeat">${REPEATS.map(k=>opt(k,TP('freq.'+k),t.repeat)).join('')}</select></div>
    <div class="f" data-for="once"><label>${T('dlg.data')}</label><input type="date" name="date" value="${t.date||fmt(today())}"></div>
    <div class="f" data-for="wday"><label>${T('dlg.diaSemana')}</label><select name="weekday">${[0,1,2,3,4,5,6].map(i=>opt(i,dL(i),t.weekday||0)).join('')}</select></div>
-   <div class="f"><label>${T('dlg.nota')}</label><textarea name="note" rows="2" maxlength="200">${esc(t.note)}</textarea></div>
+   <div class="f"><label>${T('dlg.nota')}</label><textarea name="note" rows="2" maxlength="200" placeholder="${T('dlg.notaPh')}">${esc(t.note)}</textarea></div>
    <div class="row" style="justify-content:flex-end">${id?'<button type="button" class="btn danger" data-act="delTask" data-id="'+id+'">'+T('dlg.apagar')+'</button><button type="button" class="btn" data-act="dupTask" data-id="'+id+'" style="margin-right:auto">'+T('dlg.duplicar')+'</button>':''}
    <button type="button" class="btn" data-act="closeDlg">${T('dlg.cancelar')}</button><button class="btn pri" value="ok">${T('dlg.guardar')}</button></div></form>`;
   const f=$dlg.querySelector('form'),sync=()=>{const r=f.repeat.value;f.querySelector('[data-for=once]').hidden=r!=='once';f.querySelector('[data-for=wday]').hidden=r!=='wday'};
@@ -455,6 +479,16 @@ function openTask(id){
 /* ---------- render / eventos ---------- */
 const $dlg=document.getElementById('dlg'),$main=document.getElementById('main');
 const TABS=[['hoje',viewHoje],['semana',viewSemana],['rot',viewRot],['tarefas',viewTarefas],['mais',viewMais]];
+function festa(){ // segredo: 7 toques na versão (Definições)
+  toast(TP('egg.msg'));
+  if(matchMedia('(prefers-reduced-motion:reduce)').matches)return;
+  const em=[...TP('egg.emojis')].filter(x=>x.trim());if(!em.length)return;
+  const els=[];
+  for(let i=0;i<40;i++){const e=document.createElement('span');e.className='confete';e.textContent=em[Math.floor(Math.random()*em.length)];
+    e.style.left=Math.random()*96+'vw';e.style.fontSize=(18+Math.random()*22)+'px';e.style.animationDuration=(2.2+Math.random()*2.4)+'s';e.style.animationDelay=(Math.random()*.9)+'s';
+    document.body.appendChild(e);els.push(e)}
+  setTimeout(()=>els.forEach(e=>e.remove()),6500);
+}
 let desfazer=null,toastT=null;
 function toast(msg,undo){const t=document.getElementById('toast');desfazer=undo||null;t.innerHTML=`<span>${esc(msg)}</span>${undo?`<button data-act="undo">${T('toast.desfazer')}</button>`:''}`;t.className='on';clearTimeout(toastT);toastT=setTimeout(()=>{t.className='';desfazer=null},8000)}
 async function procurarAtualizacao(){
@@ -470,7 +504,8 @@ function textoSinc(){
 }
 function render(){
   aplicarTitulo();
-  document.getElementById('tabs').innerHTML=TABS.map(([k])=>`<button data-act="tab" data-t="${k}" ${ui.tab===k?'aria-current="page"':''}><span class="i">${T('nav.'+k+'.i')}</span>${T('nav.'+k)}</button>`).join('');
+  document.getElementById('tabs').innerHTML=TABS.map(([k])=>`<button data-act="tab" data-t="${k}" ${ui.tab===k?'aria-current="page"':''}><span class="i">${T('nav.'+k+'.i')}</span><span class="l">${T('nav.'+k)}</span></button>`).join('');
+  document.querySelectorAll('nav.tabs .l').forEach(l=>l.classList.toggle('cut',l.scrollWidth>l.parentElement.clientWidth-4)); // só corta se o texto não couber
   document.getElementById('sub').innerHTML=(ui.tab==='hoje'||ui.tab==='semana')?filterChips():'';
   const v=TABS.find(t=>t[0]===ui.tab)[1];
   const y=window.scrollY;$main.innerHTML=v();window.scrollTo(0,y);
@@ -489,6 +524,8 @@ document.addEventListener('click',e=>{
   else if(a==='tema'){aplicarTema(b.dataset.k);render()}
   else if(a==='sincNow'){versaoSrv=-1;sincronizar().then(()=>setTimeout(()=>{if(ui.tab==='mais')renderSeguro()},400))}
   else if(a==='atualizar')procurarAtualizacao();
+  else if(a==='desculpa'){ui.desc=TP('desculpa.lista');const d=document.getElementById('desc');if(d)d.textContent=ui.desc}
+  else if(a==='egg'){const n=Date.now();ui.egg=(ui.egg&&n-ui.egg.t<4000)?{n:ui.egg.n+1,t:ui.egg.t}:{n:1,t:n};if(ui.egg.n>=7){ui.egg=null;festa()}}
   else if(a==='pushOn'){ativarPush().then(()=>pintarPush())}
   else if(a==='pushOff'){desativarPush().then(()=>pintarPush())}
   else if(a==='pushTeste'){testarPush()}
